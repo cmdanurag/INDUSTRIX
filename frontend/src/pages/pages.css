@@ -1,4 +1,4 @@
-/* Event and 404 page layout */
+/* Shared layout for standalone pages (event, 404) */
 .page-shell {
   min-height: 100dvh;
   background: #000;

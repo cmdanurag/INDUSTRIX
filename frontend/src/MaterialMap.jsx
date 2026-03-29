@@ -3,7 +3,9 @@ import * as d3 from 'd3'
 import * as topojson from 'topojson-client'
 import worldData from 'world-atlas/countries-110m.json'
 
-// D3 geo map; site markers are transformed with the zoom group.
+/**
+ * World map with D3 + zoom/pan. Pins live in the zoom layer so they move with the map.
+ */
 export function MaterialMap({ sites, selectedSiteId, onSelectSite, zoomResetKey }) {
   const containerRef = useRef(null)
   const onSelectRef = useRef(onSelectSite)

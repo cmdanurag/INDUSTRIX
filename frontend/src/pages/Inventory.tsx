@@ -30,7 +30,7 @@ export function Inventory({ rows, showToast }: InventoryProps) {
         <button
           type="button"
           className="hi-ghost-btn"
-          onClick={() => showToast('Export unavailable')}
+          onClick={() => showToast('Export is a demo — wire your ERP when ready')}
         >
           Export snapshot
         </button>

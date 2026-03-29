@@ -12,7 +12,7 @@
   color: #d0d6e2;
   background: #000;
   border: 1px solid rgba(116, 171, 255, 0.2);
-  /* Keep bottom strip reachable */
+  /* Allow the bottom section to remain visible (or scroll into view) */
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -402,7 +402,7 @@
   display: grid;
   grid-template-columns: 1fr 250px;
   min-height: 0;
-  overflow: hidden;
+  overflow: hidden; /* keep footer visible */
 }
 
 .center-main {
@@ -568,7 +568,7 @@
   pointer-events: auto;
 }
 
-/* Map chart popout (createPortal target: body) */
+/* Draggable pop-out (portaled to document.body) */
 .map-floating-panel.map-floating-panel--popout {
   position: fixed;
   z-index: 10050;
@@ -682,7 +682,7 @@
   line-height: 1.35;
 }
 
-/* Chart container height inside popout */
+/* Fills remaining height of the pop-out (lightweight-charts canvas) */
 .map-popout-chart-host {
   flex: 1;
   min-height: 0;

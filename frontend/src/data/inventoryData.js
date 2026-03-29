@@ -1,4 +1,4 @@
-// Product rows: left sidebar (Market/Inventory) and Inventory tab.
+/** Firefighter drone product inventory — shared by dashboard left table & Inventory tab */
 export const productRows = [
   { name: 'Airframe Kit', stage: 'Frame', qty: '120', risk: 'LOW', up: true },
   { name: 'Water Pump Module', stage: 'Hydraulics', qty: '84', risk: 'MED', up: true },

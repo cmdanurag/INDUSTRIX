@@ -22,7 +22,7 @@ function clampPopoutPosition(left, top) {
   }
 }
 
-// Left sidebar ticker rows
+// Firefighting drone status widgets (kept intentionally compact)
 const watchlist = [
   { symbol: 'AIRFRAME KIT', delta: '120', up: true },
   { symbol: 'WATER PUMP', delta: '84', up: true },
@@ -71,7 +71,9 @@ const rawMaterialOptions = [
   { key: 'FLIGHT_CONTROLLER', label: 'Flight Controller', qty: '70' },
 ]
 
-// Sourcing sites; tradingViewSymbol seeds the chart series for that pin.
+/**
+ * Sourcing sites (map pins). `tradingViewSymbol` labels the in-app candle chart and seeds demo OHLCV data.
+ */
 const MATERIAL_SITES = [
   {
     id: 'af-sea',
@@ -317,7 +319,8 @@ function DashboardPage() {
             <div className="map-chart-symbol">
               <code>{mapPopup.site.tradingViewSymbol}</code>
               <span className="map-chart-note">
-                Synthetic OHLCV from symbol and site id. Substitute live quotes for production.
+                In-app chart (no iframe). Series is demo OHLCV seeded from this symbol — swap for live data when
+                ready.
               </span>
             </div>
           </div>
@@ -431,7 +434,7 @@ function DashboardPage() {
                 className={mainTab === 'home' ? 'active' : ''}
                 onClick={() => {
                   setMainTab('home')
-                  showToast('Home')
+                  showToast('Home — crew roster in the left panel')
                 }}
               >
                 Home
@@ -441,7 +444,7 @@ function DashboardPage() {
                 className={mainTab === 'market' ? 'active' : ''}
                 onClick={() => {
                   setMainTab('market')
-                  showToast('Market')
+                  showToast('Market tab — map & chart (demo)')
                 }}
               >
                 Market
@@ -451,7 +454,7 @@ function DashboardPage() {
                 className={mainTab === 'inventory' ? 'active' : ''}
                 onClick={() => {
                   setMainTab('inventory')
-                  showToast('Inventory')
+                  showToast('Inventory — full SKU table')
                 }}
               >
                 Inventory
@@ -484,7 +487,7 @@ function DashboardPage() {
                         className={orderSide === 'buy' ? 'action-row-buy-active' : ''}
                         onClick={() => {
                           setOrderSide('buy')
-                          showToast('BUY')
+                          showToast('BUY intent recorded (demo — not a real order)')
                         }}
                       >
                         BUY
@@ -494,7 +497,7 @@ function DashboardPage() {
                         className={orderSide === 'sell' ? 'action-row-sell-active' : ''}
                         onClick={() => {
                           setOrderSide('sell')
-                          showToast('SELL')
+                          showToast('SELL intent recorded (demo — not a real order)')
                         }}
                       >
                         SELL

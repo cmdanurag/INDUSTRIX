@@ -15,7 +15,7 @@ function hashString(s) {
   return Math.abs(h)
 }
 
-// Mulberry32 PRNG for stable OHLCV from a string seed.
+/** Deterministic PRNG for repeatable series per symbol/site */
 function mulberry32(a) {
   return () => {
     let t = (a += 0x6d2b79f5)
@@ -66,7 +66,9 @@ function buildOHLCV(seedKey, barCount = 90) {
   return { candles, volumes }
 }
 
-// Lightweight Charts candlestick + histogram; data derived from symbol and siteId.
+/**
+ * In-app candlesticks + volume (canvas, no iframe). Series is deterministic from symbol + siteId.
+ */
 export function MarketCandleChart({ symbol, siteId }) {
   const containerRef = useRef(null)
 
