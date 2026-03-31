@@ -2,7 +2,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.database import Base, engine
-from routers import auth
+from routers import procurement
+
 
 Base.metadata.create_all(bind=engine,checkfirst=True)
 
@@ -16,8 +17,8 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
-app.include_router(auth.router, prefix='/api')
+app.include_router(procurement.router, prefix="/api", tags=["Procurement"])
 
-@app.get('/api/health')
-def health():
-    return {'status': 'online', 'system': 'INDUSTRIX'}
+@app.get("/", tags=["Health"])
+def root():
+    return {"status": "ok", "game": "Industrix", "version": "1.0.0"}
