@@ -47,7 +47,9 @@ def get_current_team(
 @router.post('/login', response_model=LoginResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     team = db.query(Team).filter(Team.team_code == body.team_code.upper()).first()
-    if not team or not pwd_ctx.verify(body.password, team.password_hash):
+    if not team:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid team code')
+    if not body.password == team.password_hash:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid team code or password')
     if not team.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Team account is inactive')
