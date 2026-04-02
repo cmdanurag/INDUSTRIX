@@ -1,87 +1,109 @@
 """
 models/deals.py
 ===============
-EventLedger — every multi-cycle obligation: loans, R&D investments,
-              global events, active backroom effects.
-GovDeal     — every backroom deal with its discovery lifecycle.
+Event   — every game event: single-cycle, flat, phase-tagged.
+           Multi-cycle obligations (loans, R&D) are stored as
+           multiple pre-generated rows, one per cycle.
+GovDeal — backroom deal negotiation record with discovery lifecycle.
+           Creating a GovDeal also generates the corresponding Event
+           rows (done in services/deals.py).
 
-These are the only tables that grow over time.
-EventLedger rows are deleted (or marked resolved) once
-cycles_remaining hits 0.
+Design principles:
+  - Every Event is a single-cycle atomic unit. No cycles_remaining.
+  - The cycle_id column says exactly which cycle this event fires in.
+  - The phase column says which service resolves it.
+  - Once resolved, status flips to APPLIED (soft delete for audit trail).
+  - target_team_id is who is AFFECTED.
+  - source_team_id is who CAUSED it (null for loans, global events).
 """
 from datetime import datetime
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum as SAEnum,
     Float, ForeignKey, Integer, String, Text,
-    UniqueConstraint, func,
+    func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from core.database import Base
-from core.enums import EventStatus, EventType, GovDealStatus, GovDealType
+from core.enums import (
+    EventPhase, EventStatus, EventType,
+    GovDealStatus, GovDealType,
+)
 
 
-class EventLedger(Base):
+class Event(Base):
     """
-    One row per active multi-cycle obligation.
+    One game event targeting one team in one cycle.
 
-    event_type determines the structure of payload:
+    Queried by:
+        (cycle_id, target_team_id, phase, status=PENDING)
 
-    GOV_LOAN:
-        {"principal": F, "rate": F, "interest_due_this_cycle": F}
+    Each service calls this query at the start of its resolution,
+    processes the matching events, and flips their status to APPLIED.
 
-    INTER_TEAM_LOAN:
-        {"principal": F, "rate": F, "lender_team_id": N,
-         "interest_due_this_cycle": F}
+    For GLOBAL_MARKET_SHIFT events, target_team_id is NULL —
+    the financial service queries these separately and applies
+    them to the Game record.
 
-    RND_INVESTMENT:
-        {"component": str, "focus": str, "level_arriving": N,
-         "cycles_until_arrival": N}
+    For LOAN_INTEREST events, source_team_id is the lender
+    (null = government loan).
 
-    GLOBAL_EVENT:
-        {"description": str, "effects": {...}}
-        effects keys depend on what the event does — the service layer
-        reads these and applies them at cycle start.
-
-    BACKROOM_EFFECT:
-        {... deal-type-specific payload as in GovDeal.effect_payload ...}
+    payload structure is documented in EventType docstring (enums.py).
     """
-    __tablename__ = "event_ledger"
+    __tablename__ = "event"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    game_id    = Column(Integer, ForeignKey("game.id", ondelete="CASCADE"),
-                        nullable=False, index=True)
-    team_id    = Column(Integer, ForeignKey("team.id", ondelete="CASCADE"),
-                        nullable=True, index=True)
-    # team_id is NULL for GLOBAL_EVENT (affects all teams).
+    id      = Column(Integer, primary_key=True, index=True)
+    game_id = Column(Integer, ForeignKey("game.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
 
-    event_type       = Column(SAEnum(EventType), nullable=False)
-    status           = Column(SAEnum(EventStatus), nullable=False,
-                               default=EventStatus.ACTIVE)
-    cycles_remaining = Column(Integer, nullable=False, default=1)
-    payload          = Column(JSONB,   nullable=False, default=dict)
+    # Which cycle this event fires in.
+    cycle_id = Column(Integer, ForeignKey("cycle.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
 
-    # Human-readable note from the organiser.
+    # Who is affected. NULL only for GLOBAL_MARKET_SHIFT.
+    target_team_id = Column(Integer, ForeignKey("team.id", ondelete="CASCADE"),
+                             nullable=True, index=True)
+
+    # Who caused it. NULL for loans, global events, team's own R&D.
+    source_team_id = Column(Integer, ForeignKey("team.id", ondelete="CASCADE"),
+                             nullable=True, index=True)
+
+    # Which service resolves this.
+    phase      = Column(SAEnum(EventPhase), nullable=False, index=True)
+
+    # What this event does.
+    event_type = Column(SAEnum(EventType),  nullable=False)
+
+    # Effect parameters — structure depends on event_type (see enums.py).
+    payload    = Column(JSONB, nullable=False, default=dict)
+
+    # Lifecycle.
+    status     = Column(SAEnum(EventStatus), nullable=False,
+                         default=EventStatus.PENDING, index=True)
+
+    # If this event was generated from a GovDeal, link back to it.
+    # Null for loans, R&D investments, global events.
+    gov_deal_id = Column(Integer, ForeignKey("gov_deal.id", ondelete="SET NULL"),
+                          nullable=True, index=True)
+
+    # Human-readable context for the organiser audit view.
     notes      = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    applied_at = Column(DateTime, nullable=True)
 
 
 class GovDeal(Base):
     """
-    One backroom deal recorded by the organiser.
+    One backroom deal negotiated offline between a team and the government.
+    Recording a GovDeal immediately generates Event rows for the next cycle.
 
     Lifecycle:
-      PENDING  → recorded, bribe deducted, deal queued for next cycle
-      APPLIED  → effect injected at cycle start
-      DISCOVERED → found during backroom phase; fine applied, effect nullified
+      PENDING    → recorded, bribe deducted, Event rows generated
+      APPLIED    → all generated Event rows have been consumed
+      DISCOVERED → found out; fine applied to buyer, Events nullified
       CANCELLED  → organiser cancelled before application
-
-    discovery_probability is computed at record time and decays each cycle.
-    cycles_active tracks how many cycles have elapsed since creation
-    (used for the decay calculation).
     """
     __tablename__ = "gov_deal"
 
@@ -93,7 +115,7 @@ class GovDeal(Base):
                              index=True)
     target_team_id = Column(Integer, ForeignKey("team.id"), nullable=True,
                              index=True)
-    # target is NULL for GREEN_* self-buff deals
+    # NULL for GREEN_* self-buff deals (buyer = target in that case)
 
     deal_type = Column(SAEnum(GovDealType), nullable=False)
     status    = Column(SAEnum(GovDealStatus), nullable=False,
@@ -101,6 +123,8 @@ class GovDeal(Base):
 
     bribe_amount   = Column(Float, nullable=False)
     effect_scale   = Column(Float, nullable=False, default=1.0)
+
+    # Snapshot of the computed effect payload (same as the Event rows it spawned).
     effect_payload = Column(JSONB, nullable=False, default=dict)
 
     discovery_probability = Column(Float, nullable=False)
@@ -111,6 +135,6 @@ class GovDeal(Base):
     negotiated_cycle_id = Column(Integer, ForeignKey("cycle.id"),
                                   nullable=False, index=True)
 
-    notes      = Column(Text,    nullable=True)
+    notes      = Column(Text,     nullable=True)
     applied_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())

@@ -30,15 +30,18 @@ QUALITY_MAX: int   = 100
 MIN_USABLE_GRADE: int = 1
 
 # ── Transport ─────────────────────────────────────────────────────────────────
-# cost_multiplier  : applied to source base_cost_per_unit
+# base_cost        : minimum cost charged irrespective of material quantity
+# var_cost         : cost charged scaling with material quantity
 # sigma_add        : added to source quality_sigma during draw
+# mean_reduce      : subtracted from source quality_mean during draw
 # p_damage         : probability of partial damage event
-# p_loss           : probability of total shipment loss
 TRANSPORT: Dict[str, Dict] = {
-    "air":  {"cost_mult": 2.5, "sigma_add": 1.0,  "p_damage": 0.05, "p_loss": 0.01},
-    "rail": {"cost_mult": 1.4, "sigma_add": 4.0,  "p_damage": 0.12, "p_loss": 0.03},
-    "road": {"cost_mult": 1.0, "sigma_add": 8.0,  "p_damage": 0.20, "p_loss": 0.05},
+    "air":   {"base_cost": 30000, "var_cost": 200, "sigma_add": 0.0, "p_damage": 0.00, "mean_reduce": 0.00, "vulnerability": 0.00},
+    "water": {"base_cost":  8000, "var_cost":  20, "sigma_add": 9.0, "p_damage": 0.18, "mean_reduce": 4.00, "vulnerability": 0.50},
+    "rail":  {"base_cost":  4000, "var_cost":  60, "sigma_add": 3.5, "p_damage": 0.07, "mean_reduce": 0.50, "vulnerability": 0.80},
+    "road":  {"base_cost":  1000, "var_cost": 100, "sigma_add": 6.0, "p_damage": 0.14, "mean_reduce": 1.50, "vulnerability": 1.00},
 }
+
 PARTIAL_DAMAGE_FRACTION: float = 0.25
 PARTIAL_DAMAGE_PENALTY:  int   = 20
 
@@ -46,10 +49,10 @@ PARTIAL_DAMAGE_PENALTY:  int   = 20
 # Keys: starting_grade, throughput, labour_required, degradation_rate,
 #       purchase_cost, scrap_value
 MACHINE_TIERS: Dict[str, Dict] = {
-    "basic":      {"grade": 40, "throughput": 200,  "labour": 10, "degrade": 4.0, "buy": 15_000,  "scrap": 1_000},
+    "basic":      {"grade": 40, "throughput": 200,  "labour": 4, "degrade": 4.0, "buy": 15_000,  "scrap": 1_000},
     "standard":   {"grade": 60, "throughput": 400,  "labour": 8,  "degrade": 3.0, "buy": 35_000,  "scrap": 3_000},
-    "industrial": {"grade": 75, "throughput": 700,  "labour": 6,  "degrade": 2.0, "buy": 80_000,  "scrap": 8_000},
-    "precision":  {"grade": 90, "throughput": 1000, "labour": 4,  "degrade": 1.2, "buy": 180_000, "scrap": 25_000},
+    "industrial": {"grade": 75, "throughput": 700,  "labour": 10,  "degrade": 2.0, "buy": 80_000,  "scrap": 8_000},
+    "precision":  {"grade": 90, "throughput": 1000, "labour": 20,  "degrade": 1.2, "buy": 180_000, "scrap": 25_000},
 }
 MACHINE_MAX_CONDITION:    float = 100.0
 MACHINE_DEGRADED_AT:      float = 40.0
@@ -60,7 +63,7 @@ MAINTENANCE_COST: Dict[str, float] = {
     "none": 0.0, "basic": 500.0, "full": 1_500.0, "overhaul": 5_000.0,
 }
 MAINTENANCE_DEGRADE_MULT: Dict[str, float] = {
-    "none": 1.0, "basic": 0.5, "full": 0.0, "overhaul": 0.0,
+    "none": 1.0, "basic": 0.6, "full": 0.3, "overhaul": 0.1,
 }
 
 # ── Automation ────────────────────────────────────────────────────────────────
@@ -71,7 +74,7 @@ AUTOMATION_SIGMA_MULT: Dict[str, float] = {
     "manual": 1.0, "semi_auto": 0.65, "full_auto": 0.35,
 }
 AUTOMATION_UPGRADE_COST: Dict[str, float] = {
-    "manual": 0.0, "semi_auto": 20_000.0, "full_auto": 60_000.0,
+    "manual": 0.0, "semi_auto": 200_000.0, "full_auto": 600_000.0,
 }
 
 # ── Labour ────────────────────────────────────────────────────────────────────
@@ -105,7 +108,7 @@ ASSEMBLY_BETA:          float = 0.30
 
 # ── R&D ───────────────────────────────────────────────────────────────────────
 MAX_RND_LEVEL:           int   = 5
-RND_COST_PER_LEVEL:      float = 10_000.0
+RND_COST_PER_LEVEL:      float = 100_000.0
 RND_CYCLES_PER_LEVEL:    int   = 2
 RND_DECAY_PROBABILITY:   float = 0.05
 

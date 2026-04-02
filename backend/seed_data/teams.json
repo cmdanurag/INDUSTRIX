@@ -1,0 +1,7 @@
+[
+  {"name": "Team Alpha",   "pin": "alpha2026"},
+  {"name": "Team Beta",    "pin": "beta2026"},
+  {"name": "Team Gamma",   "pin": "gamma2026"},
+  {"name": "Team Delta",   "pin": "delta2026"},
+  {"name": "Team Epsilon", "pin": "epsilon2026"}
+]

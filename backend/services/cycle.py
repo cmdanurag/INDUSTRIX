@@ -2,13 +2,17 @@
 services/cycle.py
 =================
 Cycle orchestrator. All phase transitions go through here.
+No event logic lives here — events are resolved inside the service
+that owns each phase.
 
-create_game(db, ...)         → Game
-add_team(db, game, name, pin) → Team  (seeds all rows)
-create_cycle(db, game)       → Cycle
-advance_phase(db, game)      → CyclePhaseLog  (moves to next phase)
-start_next_cycle(db, game)   → Cycle
-end_game(db, game)           → Game
+Public API
+----------
+create_game(db, ...)          → Game
+add_team(db, game, name, pin) → Team
+create_cycle(db, game)        → Cycle
+advance_phase(db, game, rng)  → CyclePhaseLog
+start_next_cycle(db, game)    → Cycle
+end_game(db, game)            → Game
 """
 import hashlib
 import secrets
@@ -27,9 +31,11 @@ from services.procurement import (
     resolve_procurement, seed_component_slots, seed_procurement_memory,
 )
 from services.production import resolve_production, seed_production_memory
-from services.sales import resolve_sales, seed_sales_memory
+from services.sales import (
+    resolve_global_financial_events, resolve_sales, seed_sales_memory,
+)
 from services.deals import (
-    apply_pending_deals, process_event_ledger, roll_discovery,
+    create_events_for_pending_deals, roll_discovery,
 )
 
 
@@ -61,9 +67,7 @@ def create_game(
 
 def add_team(db: Session, game: Game, name: str, pin: str) -> Team:
     """
-    Create a team and seed all persistent rows:
-    Inventory, ComponentSlot × 6, MemoryProcurement,
-    MemoryProduction, MemorySales.
+    Create a team and seed all persistent state rows.
     """
     pin_hash = hashlib.sha256(pin.encode()).hexdigest()
     team = Team(
@@ -75,24 +79,20 @@ def add_team(db: Session, game: Game, name: str, pin: str) -> Team:
     db.add(team)
     db.flush()
 
-    # Inventory
     inv = Inventory(
-        team_id          = team.id,
-        funds            = game.starting_funds,
-        drone_stock      = [0] * 101,
-        brand_score      = 50.0,
-        workforce_size   = 50,
-        skill_level      = 40.0,
-        morale           = 60.0,
-        has_gov_loan     = False,
+        team_id           = team.id,
+        funds             = game.starting_funds,
+        drone_stock       = [0] * 101,
+        brand_score       = 50.0,
+        workforce_size    = 50,
+        skill_level       = 40.0,
+        morale            = 60.0,
+        has_gov_loan      = False,
         cumulative_profit = 0.0,
     )
     db.add(inv)
 
-    # Component slots
     seed_component_slots(db, team)
-
-    # Memory tables
     seed_procurement_memory(db, team)
     seed_production_memory(db, team)
     seed_sales_memory(db, team)
@@ -107,8 +107,8 @@ def add_team(db: Session, game: Game, name: str, pin: str) -> Team:
 def create_cycle(db: Session, game: Game) -> Cycle:
     """
     Create the next cycle, snapshotting current game parameters.
-    Also processes the event ledger (loans tick, global events apply)
-    and applies any pending backroom deals.
+    Also generates Event rows for any pending GovDeals that didn't
+    have a target cycle when they were recorded.
     """
     last = (
         db.query(Cycle)
@@ -138,10 +138,11 @@ def create_cycle(db: Session, game: Game) -> Cycle:
     db.commit()
     db.refresh(cycle)
 
-    # Apply pending deals and process event ledger
-    apply_pending_deals(db, game, cycle)
-    process_event_ledger(db, game)
-    db.commit()
+    # Generate Event rows for any GovDeals that are still PENDING and
+    # have no events yet (because this cycle didn't exist at deal time).
+    n = create_events_for_pending_deals(db, game, cycle)
+    if n:
+        db.commit()
 
     return cycle
 
@@ -169,12 +170,11 @@ def advance_phase(
 ) -> CyclePhaseLog:
     """
     Advance to the next phase in the current cycle.
+    Runs the resolution for the phase being closed.
 
-    When leaving PROCUREMENT_OPEN → run procurement resolution.
-    When leaving PRODUCTION_OPEN  → run production resolution.
-    When leaving SALES_OPEN       → run sales resolution.
-
-    The organiser calls this endpoint. Teams are not involved.
+    PROCUREMENT_OPEN → procurement resolves → PRODUCTION_OPEN
+    PRODUCTION_OPEN  → production resolves  → SALES_OPEN
+    SALES_OPEN       → sales + financial resolves → BACKROOM
     """
     if rng is None:
         rng = np.random.default_rng()
@@ -189,17 +189,19 @@ def advance_phase(
     if current not in _PHASE_ORDER:
         raise ValueError(f"Cannot advance from phase '{current}'.")
 
-    idx  = _PHASE_ORDER.index(current)
+    idx = _PHASE_ORDER.index(current)
     if idx + 1 >= len(_PHASE_ORDER):
-        raise ValueError("Already at BACKROOM. Use /next or /end-game.")
+        raise ValueError(
+            "Already at BACKROOM. Use /next or /end-game."
+        )
 
-    # ── Run resolution for the phase we are leaving ───────────────────────────
     teams = (
         db.query(Team)
         .filter(Team.game_id == game.id, Team.is_active == True)
         .all()
     )
 
+    # ── Run resolution for the phase being closed ────────────────────────────
     if current == CyclePhase.PROCUREMENT_OPEN:
         for team in teams:
             resolve_procurement(db, team, cycle, rng)
@@ -211,8 +213,10 @@ def advance_phase(
     elif current == CyclePhase.SALES_OPEN:
         for team in teams:
             resolve_sales(db, team, cycle, teams, rng)
+        # Global financial events (market shifts) — applied once, not per team
+        resolve_global_financial_events(db, game, cycle)
 
-    # ── Advance ───────────────────────────────────────────────────────────────
+    # ── Advance phase ─────────────────────────────────────────────────────────
     next_phase = _PHASE_ORDER[idx + 1]
     phase_log.current_phase = next_phase
 
@@ -229,8 +233,8 @@ def advance_phase(
 
 def start_next_cycle(db: Session, game: Game) -> Cycle:
     """
-    Called from BACKROOM phase. Rolls discovery, marks current cycle
-    complete, creates a new cycle.
+    From BACKROOM: roll discovery on deals, close current cycle,
+    create the next cycle.
     """
     cycle     = _current_cycle(db, game)
     phase_log = cycle.phase_log
@@ -238,21 +242,17 @@ def start_next_cycle(db: Session, game: Game) -> Cycle:
     if phase_log.current_phase != CyclePhase.BACKROOM:
         raise ValueError("Not in BACKROOM phase.")
 
-    # Roll discovery on pending deals
     roll_discovery(db, cycle)
 
-    # Mark current cycle complete
     phase_log.completed_at = datetime.utcnow()
     db.commit()
 
-    # Create next cycle
     return create_cycle(db, game)
 
 
 def end_game(db: Session, game: Game) -> Game:
     """
-    End the game from BACKROOM phase.
-    Rolls discovery, marks cycle complete, deactivates game.
+    From BACKROOM: roll discovery, end the game.
     """
     cycle     = _current_cycle(db, game)
     phase_log = cycle.phase_log
@@ -261,6 +261,7 @@ def end_game(db: Session, game: Game) -> Game:
         raise ValueError("Not in BACKROOM phase.")
 
     roll_discovery(db, cycle)
+
     phase_log.current_phase = CyclePhase.GAME_OVER
     phase_log.completed_at  = datetime.utcnow()
     game.is_active          = False

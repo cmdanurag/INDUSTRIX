@@ -19,7 +19,7 @@ from core.database import SessionLocal
 from models.game import Game, RawMaterialSource
 from services.cycle import create_game
 
-SEED_DIR = os.path.dirname(__file__)
+SEED_DIR = os.path.join(os.path.dirname(__file__), "seed_data")
 
 
 def load_json(filename: str) -> dict:
@@ -45,7 +45,6 @@ def seed():
             starting_funds           = market.get("starting_funds", 100_000.0),
         )
         print(f"Game created: id={game.id}")
-        print(f"  Organiser secret: {game.organiser_secret}")
         print("  (Store this secret — you need it for all admin requests)")
 
         # Create sources
@@ -57,6 +56,7 @@ def seed():
                 quality_mean       = src["quality_mean"],
                 quality_sigma      = src["quality_sigma"],
                 base_cost_per_unit = src["base_cost_per_unit"],
+                distance        = src.get("distance", 500.0),
                 min_order          = src.get("min_order", 1),
                 max_order          = src.get("max_order", 10_000),
                 is_active          = True,

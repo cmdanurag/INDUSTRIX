@@ -9,6 +9,7 @@ These are the backbone everything else references via FK.
 import secrets
 from datetime import datetime
 
+from anyio.streams.text import TextSendStream
 from sqlalchemy import (
     Boolean, Column, DateTime, Enum as SAEnum,
     Float, ForeignKey, Integer, String, UniqueConstraint, func,
@@ -160,6 +161,9 @@ class RawMaterialSource(Base):
                        nullable=False, index=True)
     component = Column(SAEnum(ComponentType), nullable=False)
     name      = Column(String(100), nullable=False)
+
+    distance  = Column(Integer, nullable=False, default=500)
+    note      = Column(String(200), nullable=True)
 
     quality_mean  = Column(Float, nullable=False)   # Centre of Normal draw
     quality_sigma = Column(Float, nullable=False)   # Spread of Normal draw

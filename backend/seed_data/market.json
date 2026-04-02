@@ -1,0 +1,8 @@
+{
+  "game_name": "Industrix — Srijan 2026",
+  "qr_hard": 30.0,
+  "qr_soft": 50.0,
+  "qr_premium": 75.0,
+  "market_demand_multiplier": 1.0,
+  "starting_funds": 100000.0
+}
