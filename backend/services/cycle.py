@@ -37,6 +37,7 @@ from services.sales import (
 from services.deals import (
     create_events_for_pending_deals, roll_discovery,
 )
+from services.production import seed_machine
 
 
 # ── Game setup ────────────────────────────────────────────────────────────────
@@ -96,6 +97,12 @@ def add_team(db: Session, game: Game, name: str, pin: str) -> Team:
     seed_procurement_memory(db, team)
     seed_production_memory(db, team)
     seed_sales_memory(db, team)
+
+    # Seed one Standard machine per component slot.
+    from models.procurement import ComponentSlot
+    for slot in db.query(ComponentSlot).filter(ComponentSlot.team_id == team.id).all():
+        seed_machine(db, team, slot, tier="standard",
+                     cycle_number=0, source="seed")
 
     db.commit()
     db.refresh(team)

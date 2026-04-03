@@ -50,8 +50,6 @@ def seed_component_slots(db: Session, team) -> List[ComponentSlot]:
             component        = comp,
             raw_stock        = [0] * 101,
             finished_stock   = [0] * 101,
-            machine_tier_str = "standard",
-            machine_condition = 100.0,
             rnd_quality      = 0,
             rnd_consistency  = 0,
             rnd_yield        = 0,
