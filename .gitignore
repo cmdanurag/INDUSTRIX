@@ -1,0 +1,31 @@
+# Frontend
+frontend/node_modules/
+frontend-new/node_modules/
+frontend_gravity/node_modules/
+**/node_modules/
+frontend/dist/
+frontend-new/dist/
+**/dist/
+frontend/.env
+frontend/.env.*
+
+# Backend
+backend/__pycache__/
+backend/**/__pycache__/
+backend/venv/
+backend/.venv*/
+**/.venv*/
+backend/.env
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/

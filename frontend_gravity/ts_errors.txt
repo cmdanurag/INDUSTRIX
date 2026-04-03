@@ -1,0 +1,17 @@
+src/api/index.ts(3,3): error TS1484: 'GameStatusOut' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/api/index.ts(4,3): error TS1484: 'InventoryOut' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/api/index.ts(5,3): error TS1484: 'ProcurementMemoryOut' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/api/index.ts(6,3): error TS1484: 'ProductionMemoryOut' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/api/index.ts(7,3): error TS1484: 'LeaderboardOut' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/api/index.ts(8,3): error TS1484: 'Source' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/components/SharedComponents.tsx(80,10): error TS1484: 'ComponentType' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/components/SharedLayout.tsx(7,23): error TS6133: 'gameActive' is declared but its value is never read.
+src/pages/Inventory.tsx(4,10): error TS1484: 'ComponentType' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/pages/Production.tsx(4,10): error TS1484: 'ComponentType' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/pages/Results.tsx(6,18): error TS6133: 'teamId' is declared but its value is never read.
+src/store/useInventoryStore.ts(3,10): error TS1484: 'ComponentType' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/store/useProcurementStore.ts(2,10): error TS1484: 'ComponentType' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/store/useProcurementStore.ts(2,25): error TS1484: 'Source' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/store/useProcurementStore.ts(2,33): error TS1484: 'ComponentDecision' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/store/useProductionStore.ts(2,10): error TS1484: 'ComponentType' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/store/useResultsStore.ts(2,10): error TS1484: 'LeaderboardRow' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.

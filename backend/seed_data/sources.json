@@ -1,0 +1,98 @@
+[
+  {
+    "component": "airframe",
+    "name": "AeroFrame Industries",
+    "quality_mean": 70.0, "quality_sigma": 8.0,
+    "base_cost_per_unit": 45.0, "distance": 400,
+    "min_order": 10, "max_order": 5000,
+    "note": "Local supplier — road is cheapest"
+  },
+  {
+    "component": "airframe",
+    "name": "BudgetFrame Co.",
+    "quality_mean": 52.0, "quality_sigma": 14.0,
+    "base_cost_per_unit": 28.0, "distance": 1800,
+    "min_order": 50, "max_order": 8000,
+    "note": "Regional — rail becomes competitive at >200 units"
+  },
+  {
+    "component": "propulsion",
+    "name": "TurboJet Systems",
+    "quality_mean": 68.0, "quality_sigma": 9.0,
+    "base_cost_per_unit": 60.0, "distance": 350,
+    "min_order": 10, "max_order": 4000,
+    "note": "Local — road wins"
+  },
+  {
+    "component": "propulsion",
+    "name": "EconoDrive Ltd.",
+    "quality_mean": 50.0, "quality_sigma": 15.0,
+    "base_cost_per_unit": 38.0, "distance": 3200,
+    "min_order": 20, "max_order": 6000,
+    "note": "International — ship wins at large orders"
+  },
+  {
+    "component": "avionics",
+    "name": "SkyLogic Electronics",
+    "quality_mean": 72.0, "quality_sigma": 7.0,
+    "base_cost_per_unit": 80.0, "distance": 900,
+    "min_order": 5, "max_order": 3000,
+    "note": "Regional — rail vs road breakeven around 150 units"
+  },
+  {
+    "component": "avionics",
+    "name": "BasicBoard Supplies",
+    "quality_mean": 55.0, "quality_sigma": 12.0,
+    "base_cost_per_unit": 50.0, "distance": 2800,
+    "min_order": 10, "max_order": 5000,
+    "note": "International — ship competitive at >300 units"
+  },
+  {
+    "component": "fire_suppression",
+    "name": "SafeGuard Systems",
+    "quality_mean": 65.0, "quality_sigma": 10.0,
+    "base_cost_per_unit": 35.0, "distance": 500,
+    "min_order": 10, "max_order": 5000,
+    "note": "Local — road wins"
+  },
+  {
+    "component": "fire_suppression",
+    "name": "CheapSafe Ltd.",
+    "quality_mean": 48.0, "quality_sigma": 16.0,
+    "base_cost_per_unit": 20.0, "distance": 4500,
+    "min_order": 50, "max_order": 8000,
+    "note": "Very distant — ship only viable option at large volumes"
+  },
+  {
+    "component": "sensing_safety",
+    "name": "SensorTech Pro",
+    "quality_mean": 74.0, "quality_sigma": 8.0,
+    "base_cost_per_unit": 70.0, "distance": 1200,
+    "min_order": 5, "max_order": 3000,
+    "note": "Regional — rail competitive at medium quantities"
+  },
+  {
+    "component": "sensing_safety",
+    "name": "BasicSense Co.",
+    "quality_mean": 53.0, "quality_sigma": 13.0,
+    "base_cost_per_unit": 42.0, "distance": 650,
+    "min_order": 10, "max_order": 5000,
+    "note": "Near-regional — road vs rail decision point"
+  },
+  {
+    "component": "battery",
+    "name": "PowerCell Advanced",
+    "quality_mean": 69.0, "quality_sigma": 9.0,
+    "base_cost_per_unit": 55.0, "distance": 2200,
+    "min_order": 10, "max_order": 4000,
+    "note": "Far regional — rail vs ship decision point at ~400 units"
+  },
+  {
+    "component": "battery",
+    "name": "EcoBattery Generic",
+    "quality_mean": 51.0, "quality_sigma": 14.0,
+    "base_cost_per_unit": 32.0, "distance": 300,
+    "min_order": 20, "max_order": 7000,
+    "note": "Very local — road cheapest regardless of quantity"
+  }
+]

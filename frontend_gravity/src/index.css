@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-body m-0 p-0 antialiased min-h-screen text-sm;
+  }
+}
+
+@layer utilities {
+  .clip-rect {
+    clip-path: inset(0);
+  }
+}
+
+/* Base resets & structural styles for inputs */
+input[type="number"],
+input[type="text"],
+select {
+  @apply bg-surface border border-outline-variant text-on-surface appearance-none outline-none focus:border-outline;
+}
+input:disabled, select:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
