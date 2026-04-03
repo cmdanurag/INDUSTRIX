@@ -59,6 +59,11 @@ def patch_decisions(
         raise HTTPException(500, "Sales memory not initialised.")
 
     current = dict(mem.decisions or {})
+
+    # Save units_to_assemble at top level of decisions
+    if body.units_to_assemble is not None:
+        current["units_to_assemble"] = body.units_to_assemble
+
     for tier_val, dec in body.decisions.items():
         current[tier_val] = dec.dict()
 

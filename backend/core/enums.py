@@ -24,6 +24,7 @@ class TransportMode(str, enum.Enum):
     AIR  = "air"
     RAIL = "rail"
     ROAD = "road"
+    WATER = "water"
 
 
 # ── Production ────────────────────────────────────────────────────────────────
