@@ -349,6 +349,7 @@ def resolve_procurement(
             "source": source.name,
             "transport": transport,
             "distance_km": distance_km,
+            "raw": quality_array,
         }
     # Deduct total procurement cost (allow going negative — dealt with in backroom)
     if inventory:

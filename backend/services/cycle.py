@@ -38,6 +38,7 @@ from services.deals import (
     create_events_for_pending_deals, roll_discovery,
 )
 from services.production import seed_machine
+from routers.organiser.market import seed_market_factions
 
 
 # ── Game setup ────────────────────────────────────────────────────────────────
@@ -61,6 +62,11 @@ def create_game(
         is_active                = True,
     )
     db.add(game)
+    db.flush()
+
+    # Seed default market factions for this game.
+    seed_market_factions(db, game)
+
     db.commit()
     db.refresh(game)
     return game
@@ -210,16 +216,25 @@ def advance_phase(
 
     # ── Run resolution for the phase being closed ────────────────────────────
     if current == CyclePhase.PROCUREMENT_OPEN:
+        proc_summaries = {}
         for team in teams:
-            resolve_procurement(db, team, cycle, rng)
+            result = resolve_procurement(db, team, cycle, rng)
+            proc_summaries[str(team.id)] = result
+        phase_log.procurement_summary = proc_summaries
 
     elif current == CyclePhase.PRODUCTION_OPEN:
+        prod_summaries = {}
         for team in teams:
-            resolve_production(db, team, cycle, rng)
+            result = resolve_production(db, team, cycle, rng)
+            prod_summaries[str(team.id)] = result
+        phase_log.production_summary = prod_summaries
 
     elif current == CyclePhase.SALES_OPEN:
+        sales_summaries = {}
         for team in teams:
-            resolve_sales(db, team, cycle, teams, rng)
+            result = resolve_sales(db, team, cycle, teams, rng)
+            sales_summaries[str(team.id)] = result
+        phase_log.sales_summary = sales_summaries
         # Global financial events (market shifts) — applied once, not per team
         resolve_global_financial_events(db, game, cycle)
 

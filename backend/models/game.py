@@ -14,6 +14,7 @@ from sqlalchemy import (
     Boolean, Column, DateTime, Enum as SAEnum,
     Float, ForeignKey, Integer, String, UniqueConstraint, func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from core.database import Base
@@ -54,6 +55,8 @@ class Game(Base):
                             cascade="all, delete-orphan")
     sources = relationship("RawMaterialSource", back_populates="game",
                             cascade="all, delete-orphan")
+    market_factions = relationship("MarketFaction", back_populates="game",
+                                   cascade="all, delete-orphan")
 
 
 class Team(Base):
@@ -120,6 +123,42 @@ class Cycle(Base):
 
 
 class CyclePhaseLog(Base):
+    """
+    Tracks the current phase of a cycle and timestamps for each transition.
+    Also stores per-team resolution summaries written at advance_phase time.
+
+    production_summary: {team_id: {components, riot, wage_total, ...}}
+    sales_summary:      {team_id: {units_sold, total_revenue, tier_sold, ...}}
+
+    These are written once at resolution and never updated — they are the
+    historical record of what happened each cycle.
+    """
+    __tablename__ = "cycle_phase_log"
+    __table_args__ = (
+        UniqueConstraint("cycle_id", name="uq_phase_log_cycle"),
+    )
+
+    id       = Column(Integer, primary_key=True, index=True)
+    cycle_id = Column(Integer, ForeignKey("cycle.id", ondelete="CASCADE"),
+                      nullable=False, unique=True, index=True)
+
+    current_phase = Column(SAEnum(CyclePhase), nullable=False,
+                            default=CyclePhase.PROCUREMENT_OPEN)
+
+    procurement_opened_at = Column(DateTime, nullable=True)
+    production_opened_at  = Column(DateTime, nullable=True)
+    sales_opened_at       = Column(DateTime, nullable=True)
+    backroom_opened_at    = Column(DateTime, nullable=True)
+    completed_at          = Column(DateTime, nullable=True)
+
+    # Resolution summaries — written once when each phase resolves.
+    procurement_summary = Column(JSONB, nullable=True)  # {str(team_id): {...}}
+    production_summary = Column(JSONB, nullable=True)   # {str(team_id): {...}}
+    sales_summary      = Column(JSONB, nullable=True)   # {str(team_id): {...}}
+
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    cycle = relationship("Cycle", back_populates="phase_log")
     """
     Tracks the current phase of a cycle and timestamps for each transition.
     One row per cycle, created when the cycle is created.
