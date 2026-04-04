@@ -8,10 +8,14 @@ export type ComponentType =
 
 export interface Source {
   id: number;
+  component: string;
   name: string;
   quality_mean: number;
   quality_sigma: number;
   base_cost_per_unit: number;
+  distance: number;
+  min_order: number;
+  max_order: number;
 }
 
 export interface InventoryOut {

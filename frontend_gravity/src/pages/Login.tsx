@@ -1,15 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useGameStore } from '../store';
 import { useNavigate } from 'react-router-dom';
-import { SendDecisionsButton } from '../components/SharedComponents';
 
 export const Login = () => {
   const [teamId, setTeamId] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useGameStore();
+  const { login, isLoggedIn } = useGameStore();
   const navigate = useNavigate();
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      navigate('/', { replace: true });
+    }
+  }, [isLoggedIn, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,9 +24,16 @@ export const Login = () => {
 
     try {
       await login(parseInt(teamId, 10), pin);
-      navigate('/');
+      // Navigation will happen automatically via useEffect when isLoggedIn becomes true
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Login failed. Check credentials.');
+        if (err.response) {
+            if (err.response.status === 401 || err.response.status === 403)
+                setError("Invalid credentials. Try again.");
+            else setError("Something went wrong.");
+        } else {
+            setError("Server not reachable.");
+        }
+        setPin("");
     } finally {
       setLoading(false);
     }
@@ -49,7 +62,7 @@ export const Login = () => {
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        <form className="space-y-6" onSubmit={handleLogin}>
           <div className="space-y-2">
             <label className="block text-xs font-mono text-on-surface-variant uppercase tracking-widest">
               Team ID
@@ -79,13 +92,17 @@ export const Login = () => {
           </div>
 
           <div className="pt-4">
-            <SendDecisionsButton 
-              onClick={() => {}} 
-              disabled={!teamId || !pin}
-              loading={loading}
-            />
-            {/* Using the styled button component for consistency, but intercepting its layout for form submission */}
-            {/* Wait, SendDecisionsButton is a button without type="submit". Let's wrap it nicely. */}
+            <button
+              type="submit"
+              disabled={!teamId || !pin || loading}
+              className={`w-full py-4 uppercase font-display font-bold tracking-wider
+                bg-gradient-to-br from-primary to-primary-container text-[#111417]
+                transition-all duration-200
+                ${(!teamId || !pin || loading) ? 'opacity-30 cursor-not-allowed' : 'hover:opacity-90'}
+              `}
+            >
+              {loading ? 'AUTHENTICATING...' : 'ACCESS SYSTEM'}
+            </button>
           </div>
         </form>
       </div>

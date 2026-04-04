@@ -55,6 +55,7 @@ export const useGameStore = create<GameState>((set) => {
     logout: () => {
       localStorage.removeItem('industrix-auth');
       set({ teamId: null, teamName: '', pin: '', isLoggedIn: false });
+      // Navigation will be handled by the useEffect in SharedLayout
     },
 
     pollStatus: async () => {

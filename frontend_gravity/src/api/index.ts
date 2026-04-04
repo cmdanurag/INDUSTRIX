@@ -12,18 +12,21 @@ import type {
 export const teamApi = {
   // Team auth is lightweight; backend may not strictly validate here.
   login: async (teamId: number, pin: string) => {
-    // Persist locally for interceptors; backend login optional
-    // match EXACT structure expected by interceptor
-  const authData = {
-    state: {
-      teamId: teamId,
-      pin: pin,
-    },
-  };
+    const { data } = await api.post(
+        "/team/login",
+        {}, // empty body
+        {
+            headers: {
+                "x-team-id": teamId,
+                "x-team-pin": pin,
+            },
+        }
+    );
 
-  localStorage.setItem("industrix-auth", JSON.stringify(authData));
-
-  return { team_id: teamId, team_name: `Team ${teamId}` };
+    return {
+        team_id: data.team_id,
+        team_name: data.team_name,
+    };
   },
 
   // Public status endpoint (no auth headers required)
@@ -88,4 +91,3 @@ export const teamApi = {
     return data;
   },
 };
-

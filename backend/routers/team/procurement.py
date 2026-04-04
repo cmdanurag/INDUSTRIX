@@ -37,28 +37,19 @@ def _assert_phase(db: Session, team: Team, expected: CyclePhase) -> Cycle:
     return cycle
 
 
-@router.get("/sources", response_model=Dict[str, List[RawMaterialSourceOut]])
+@router.get("/sources", response_model=List[RawMaterialSourceOut])
 def get_sources(
         team: Team = Depends(verify_team),
         db: Session = Depends(get_db),
 ):
     """
-    Return all active raw material sources for this game, grouped by component.
+    Return all active raw material sources for this game.
 
     This is the catalogue the team browses when filling in their procurement
     decisions. Only called during PROCUREMENT_OPEN, but not phase-gated —
     teams may also want to inspect sources during PRODUCTION_OPEN to plan
     ahead for the next cycle.
 
-    Response shape:
-        {
-          "airframe":         [{ id, name, quality_mean, ... }, ...],
-          "propulsion":       [...],
-          "avionics":         [...],
-          "fire_suppression": [...],
-          "sensing_safety":   [...],
-          "battery":          [...]
-        }
     Only components that have at least one active source appear as keys.
     """
     sources = (
@@ -71,12 +62,9 @@ def get_sources(
         .all()
     )
 
-    grouped: Dict[str, List[RawMaterialSourceOut]] = {}
+    grouped: List[RawMaterialSourceOut] = []
     for src in sources:
-        comp_key = src.component.value
-        grouped.setdefault(comp_key, []).append(
-            RawMaterialSourceOut.from_orm(src)
-        )
+        grouped.append(RawMaterialSourceOut.from_orm(src))
     return grouped
 
 
