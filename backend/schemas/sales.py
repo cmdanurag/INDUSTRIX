@@ -60,7 +60,6 @@ class SalesPatch(BaseModel):
 
 class SalesMemoryOut(BaseModel):
     """What the team sees when they GET their current sales decisions."""
-    units_to_assemble: Optional[int]
     decisions:         dict
 
     model_config = {

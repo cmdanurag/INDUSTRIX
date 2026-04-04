@@ -66,8 +66,9 @@ def patch_decisions(
     # Merge component decisions
     for comp_val, dec in body.component_decisions.items():
         if comp_val not in current:
+            print("Hello")
             current[comp_val] = {}
-        current[comp_val].update(dec.dict(exclude_none=True))
+        current[comp_val] = dec.dict()
 
     # Merge top-level labour fields
     if body.wage_level is not None:
@@ -79,4 +80,5 @@ def patch_decisions(
 
     mem.decisions = current
     db.commit()
+
     return OkResponse(message="Production decisions updated.")

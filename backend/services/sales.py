@@ -23,11 +23,11 @@ import numpy as np
 from sqlalchemy.orm import Session
 
 from core.config import (
-    ASSEMBLY_BETA, ASSEMBLY_LAMBDA,
+    ASSEMBLY_BETA, ASSEMBLY_LAMBDA, TIER_FALLBACK,
     BASE_MARKET_CAPACITY, BLACK_MKT_DISCOVERY_BASE, BLACK_MKT_FINE_MULTIPLIER,
     BRAND_DECAY, BRAND_DELTA_BLACK_MKT_FOUND, BRAND_DELTA_BLACK_MKT_HIDDEN,
     BRAND_DELTA_PREMIUM_SELL, BRAND_DELTA_STANDARD_SELL,
-    BRAND_DELTA_SUBSTANDARD_SELL, BRAND_DEMAND_EXPONENT, BRAND_TIERS,
+    BRAND_DELTA_SUBSTANDARD_SELL, BRAND_TIERS,
     HOLDING_COST_PER_UNIT, MAX_MARKET_SHARE, PRICE_ELASTICITY,
     PRICE_PREMIUM_NORMAL, PRICE_PREMIUM_SELL, PRICE_REJECT_BLACK_MKT,
     PRICE_REJECT_SCRAP, PRICE_STANDARD, PRICE_SUBSTANDARD, QUALITY_MAX,
@@ -40,6 +40,7 @@ from models.deals import Event
 from models.game import Game
 from models.procurement import ComponentSlot, Inventory
 from models.sales import MemorySales
+from models.market import MarketFaction
 
 
 # ── Seeding ───────────────────────────────────────────────────────────────────
@@ -221,33 +222,146 @@ def _assemble_drones(
     return drone_array, fin_stocks
 
 
-# ── Market allocation ─────────────────────────────────────────────────────────
+# ── Market allocation — faction-based ────────────────────────────────────────
+#
+# Replaces the old brand-weight proportional split.
+# Each faction is an independent rational buyer with a fixed price ceiling,
+# volume target, tier preference, and flexibility to step down one tier.
+#
+# Algorithm per faction:
+#   1. Collect all units on the market that match the faction's tier_preference
+#      at or below price_ceiling, from teams whose brand_score >= faction.brand_min.
+#   2. Sort candidates: price ascending (cheapest first), then brand descending
+#      as a tiebreaker (brand still matters, just not as the primary axis).
+#   3. Buy greedily until volume is exhausted or supply runs out.
+#   4. If volume not filled and flexibility > 0, step down one tier and repeat
+#      with remaining_appetite = remaining_volume × flexibility.
+#   5. Faction stops — they will NOT raise their price ceiling.
+#
+# Returns:
+#   allocation: {team_id: units_sold_to_market}   (aggregate across all factions)
+#   detail:     list of per-faction purchase records (for debrief display)
+
+def _run_faction_market(
+    db:          "Session",
+    cycle,
+    team_inputs: List[Dict],
+    # team_inputs: [{
+    #   "team_id":    int,
+    #   "brand_score": float,
+    #   "offerings":  {tier_val: {"units": int, "price": float}},
+    #                  — tier_val: how many units at what price for that tier
+    # }]
+) -> Tuple[Dict[int, int], List[Dict]]:
+    """
+    Run the faction-based market simulation.
+    Returns (allocation, faction_detail).
+    """
+    # Load active factions for this game.
+    game_id  = cycle.game_id
+    factions = (
+        db.query(MarketFaction)
+        .filter(MarketFaction.game_id == game_id, MarketFaction.is_active == True)
+        .all()
+    )
+
+    # Allocation accumulator: team_id → total units sold across all factions.
+    allocation: Dict[int, int] = {inp["team_id"]: 0 for inp in team_inputs}
+
+    # Mutable supply pool: {team_id: {tier_val: remaining_units}}
+    supply: Dict[int, Dict[str, int]] = {}
+    for inp in team_inputs:
+        supply[inp["team_id"]] = {
+            tier_val: info["units"]
+            for tier_val, info in inp["offerings"].items()
+        }
+
+    faction_detail = []
+
+    for faction in factions:
+        # Apply global demand multiplier to faction volume.
+        effective_volume = int(faction.volume * cycle.market_demand_multiplier)
+        remaining        = effective_volume
+        faction_purchases: Dict[int, int] = {}
+        current_tier     = faction.tier_preference
+        first_pass       = True
+
+        while remaining > 0 and current_tier is not None:
+            # Build candidate list for this tier.
+            candidates = []
+            for inp in team_inputs:
+                team_id     = inp["team_id"]
+                brand_score = inp["brand_score"]
+
+                # Brand minimum check.
+                if brand_score < faction.brand_min:
+                    continue
+
+                units_avail = supply[team_id].get(current_tier, 0)
+                if units_avail <= 0:
+                    continue
+
+                price = inp["offerings"].get(current_tier, {}).get("price", 0.0)
+                if price > faction.price_ceiling:
+                    continue
+
+                candidates.append({
+                    "team_id":     team_id,
+                    "price":       price,
+                    "brand_score": brand_score,
+                    "available":   units_avail,
+                })
+
+            # Sort: price ascending (primary), brand_score descending (tiebreaker).
+            candidates.sort(key=lambda c: (c["price"], -c["brand_score"]))
+
+            # Buy greedily.
+            for c in candidates:
+                if remaining <= 0:
+                    break
+                take = min(c["available"], remaining)
+                supply[c["team_id"]][current_tier] -= take
+                allocation[c["team_id"]]           += take
+                faction_purchases[c["team_id"]]     = (
+                    faction_purchases.get(c["team_id"], 0) + take
+                )
+                remaining -= take
+
+            # Step down to fallback tier if flexibility allows.
+            if remaining > 0:
+                if first_pass and faction.flexibility > 0:
+                    remaining  = int(remaining * faction.flexibility)
+                    current_tier = TIER_FALLBACK.get(current_tier)
+                    first_pass   = False
+                else:
+                    break   # Faction is done — no more buying
+            else:
+                break
+
+        faction_detail.append({
+            "faction":          faction.name,
+            "tier_preference":  faction.tier_preference,
+            "price_ceiling":    faction.price_ceiling,
+            "volume_target":    effective_volume,
+            "volume_purchased": effective_volume - remaining,
+            "purchases":        faction_purchases,
+        })
+
+    return allocation, faction_detail
+
 
 def _market_allocation(
-    team_inputs:     List[Dict],
-    market_capacity: int,
-) -> Dict[int, int]:
-    if not team_inputs:
-        return {}
-
-    weights = {
-        inp["team_id"]: max(
-            0.0,
-            (inp["brand_score"] ** BRAND_DEMAND_EXPONENT)
-            * inp.get("demand_multiplier", 1.0),
-        )
-        for inp in team_inputs
-    }
-    total_weight = sum(weights.values()) or 1.0
-
-    allocation = {}
-    for inp in team_inputs:
-        share = weights[inp["team_id"]] / total_weight
-        share = min(share, MAX_MARKET_SHARE)
-        cap   = int(market_capacity * share)
-        allocation[inp["team_id"]] = min(cap, inp["units_offered"])
-
-    return allocation
+    db:          "Session",
+    cycle,
+    team_inputs: List[Dict],
+    market_capacity: int,   # kept for backward compat with event modifiers — not used directly
+) -> Tuple[Dict[int, int], List[Dict]]:
+    """
+    Facade kept so callers don't need to change.
+    Routes to _run_faction_market internally.
+    Returns (allocation_dict, faction_detail).
+    """
+    return _run_faction_market(db, cycle, team_inputs)
 
 
 # ── Sales event modifiers ─────────────────────────────────────────────────────
@@ -433,32 +547,75 @@ def resolve_sales(
     if mods["block_fraction"] > 0:
         units_offered = max(0, int(units_offered * (1.0 - mods["block_fraction"])))
 
+    # ── Build per-team offerings for the faction market ──────────────────────
+    # Each team's offering is structured as {tier_val: {units, price}}
+    # so factions can compare price and quality across teams directly.
+
+    TIER_DEFAULT_PRICES = {
+        "premium":     PRICE_PREMIUM_NORMAL,
+        "standard":    PRICE_STANDARD,
+        "substandard": PRICE_SUBSTANDARD,
+        "reject":      PRICE_REJECT_SCRAP,
+    }
+
     all_inputs = []
     for t in all_teams:
         inv_t = db.query(Inventory).filter(Inventory.team_id == t.id).first()
         mem_t = db.query(MemorySales).filter(MemorySales.team_id == t.id).first()
         if not inv_t:
             continue
+
         stock_t = inv_t.drone_stock or [0] * 101
         tiers_t = classify_drones(
             stock_t, cycle.qr_hard, cycle.qr_soft, cycle.qr_premium
         )
-        dec_t   = mem_t.decisions if mem_t else DEFAULT_SALES_DECISIONS.copy()
-        offered_t = sum(
-            cnt for tier, cnt in tiers_t.items()
-            if dec_t.get(tier, {}).get("action") in sell_actions
-        )
+        dec_t = mem_t.decisions if mem_t else DEFAULT_SALES_DECISIONS.copy()
+
+        # Apply per-team event demand modifiers (block_fraction still relevant).
         t_events = _load_phase_events(db, t.id, cycle.id, EventPhase.SALES)
         t_mods   = _aggregate_sales_events(t_events)
+
+        offerings = {}
+        for tier_val, count in tiers_t.items():
+            dec_tier = dec_t.get(tier_val, {})
+            action   = dec_tier.get("action", "scrap") if isinstance(dec_tier, dict) else "scrap"
+            if action not in sell_actions:
+                continue
+            if count <= 0:
+                continue
+
+            # Apply block_fraction from events.
+            effective_count = max(0, int(count * (1.0 - t_mods["block_fraction"])))
+            if effective_count == 0:
+                continue
+
+            # Price: price_override > action-derived > tier default.
+            p_over  = dec_tier.get("price_override") if isinstance(dec_tier, dict) else None
+            if p_over:
+                price = float(p_over)
+            elif action == "sell_premium" and tier_val == "premium":
+                price = PRICE_PREMIUM_SELL
+            elif action == "sell_discounted":
+                price = PRICE_SUBSTANDARD
+            elif tier_val == "premium":
+                price = PRICE_PREMIUM_NORMAL
+            else:
+                price = TIER_DEFAULT_PRICES.get(tier_val, PRICE_STANDARD)
+
+            # Price pressure event: cap price at PRICE_SUBSTANDARD.
+            if t_mods["price_pressure"]:
+                price = min(price, PRICE_SUBSTANDARD)
+
+            offerings[tier_val] = {"units": effective_count, "price": price}
+
         all_inputs.append({
-            "team_id":          t.id,
-            "brand_score":      inv_t.brand_score,
-            "units_offered":    offered_t,
-            "demand_multiplier": t_mods["demand_multiplier"],
+            "team_id":    t.id,
+            "brand_score": inv_t.brand_score,
+            "offerings":  offerings,
         })
 
     market_capacity = int(BASE_MARKET_CAPACITY * cycle.market_demand_multiplier)
-    allocation      = _market_allocation(all_inputs, market_capacity)
+    allocation, faction_detail = _market_allocation(db, cycle, all_inputs, market_capacity)
     can_sell        = allocation.get(team.id, 0)
 
     # ── Government guaranteed purchase ────────────────────────────────────────
@@ -476,6 +633,14 @@ def resolve_sales(
     new_drone_stock = [0] * 101
     sold_so_far     = 0
     grade_ptr       = list(combined_stock)
+
+    # Build price_map for this team from the offerings we already computed.
+    # This ensures the per-tier revenue calculation uses the exact same price
+    # the faction market used when deciding to buy.
+    team_offerings = next(
+        (inp["offerings"] for inp in all_inputs if inp["team_id"] == team.id), {}
+    )
+    price_map = {tier_val: info["price"] for tier_val, info in team_offerings.items()}
 
     for tier_val in ["premium", "standard", "substandard", "reject"]:
         count  = tier_counts[tier_val]
@@ -510,20 +675,8 @@ def resolve_sales(
             unsold   = count - can_take
 
             if can_take > 0:
-                if mods["price_pressure"]:
-                    price = min(p_over or PRICE_STANDARD, PRICE_SUBSTANDARD)
-                elif action == "sell_premium" and tier_val == "premium":
-                    price = p_over or PRICE_PREMIUM_SELL
-                elif action == "sell_discounted":
-                    price = p_over or PRICE_SUBSTANDARD
-                elif tier_val == "premium":
-                    price = p_over or PRICE_PREMIUM_NORMAL
-                elif tier_val == "standard":
-                    price = p_over or PRICE_STANDARD
-                elif tier_val == "substandard":
-                    price = p_over or PRICE_SUBSTANDARD
-                else:
-                    price = PRICE_REJECT_SCRAP
+                # Use price_map (already accounts for price_pressure, overrides, actions).
+                price = price_map.get(tier_val, PRICE_REJECT_SCRAP)
 
                 total_revenue       += can_take * price
                 sold_so_far         += can_take
@@ -597,6 +750,7 @@ def resolve_sales(
         "brand_score":       round(inventory.brand_score, 2),
         "closing_funds":     round(inventory.funds, 2),
         "tier_sold":         tier_sold,
+        "faction_detail":    faction_detail,
     }
 
 

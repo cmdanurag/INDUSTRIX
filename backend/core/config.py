@@ -208,3 +208,75 @@ LEADERBOARD_NORMALISE: Dict[str, float] = {
     "quality_avg":       100.0,
     "inventory_penalty": 5_000.0,
 }
+# ── Market factions ───────────────────────────────────────────────────────────
+# Default faction definitions seeded on game creation.
+# Each faction is a rational independent buyer with fixed constraints.
+# Organiser can modify any of these between cycles via the admin API.
+#
+# Fields:
+#   name            : display name
+#   tier_preference : primary quality tier they want ("standard", "premium", etc.)
+#   price_ceiling   : max CU/unit at full volume — they will NOT exceed this
+#   volume          : units they want this cycle under ideal conditions
+#   flexibility     : 0.0–1.0 — willingness to step down one tier when ideal
+#                     is exhausted. Remaining appetite = volume_remaining × flexibility
+#   brand_min       : minimum brand score required to sell to this faction (0 = none)
+DEFAULT_MARKET_FACTIONS: list = [
+    {
+        "name":            "Government Procurement",
+        "tier_preference": "premium",
+        "price_ceiling":   4_500.0,
+        "volume":          150,
+        "flexibility":     0.0,    # Will not accept anything below premium
+        "brand_min":       55.0,   # Only buys from GOOD or EXCELLENT brand
+    },
+    {
+        "name":            "Industrial Operators",
+        "tier_preference": "standard",
+        "price_ceiling":   3_200.0,
+        "volume":          400,
+        "flexibility":     0.5,    # Will step down to substandard if needed
+        "brand_min":       0.0,
+    },
+    {
+        "name":            "Municipal Services",
+        "tier_preference": "standard",
+        "price_ceiling":   2_800.0,
+        "volume":          300,
+        "flexibility":     0.3,
+        "brand_min":       25.0,   # Requires at least FAIR brand
+    },
+    {
+        "name":            "NGO / Aid Sector",
+        "tier_preference": "substandard",
+        "price_ceiling":   1_600.0,
+        "volume":          250,
+        "flexibility":     0.8,    # Very flexible — will take almost anything
+        "brand_min":       0.0,
+    },
+    {
+        "name":            "Budget Resellers",
+        "tier_preference": "substandard",
+        "price_ceiling":   1_200.0,
+        "volume":          350,
+        "flexibility":     0.6,
+        "brand_min":       0.0,
+    },
+    {
+        "name":            "Private Collectors",
+        "tier_preference": "premium",
+        "price_ceiling":   5_000.0,
+        "volume":          80,
+        "flexibility":     0.1,    # Almost no flexibility but pay top price
+        "brand_min":       0.0,
+    },
+]
+
+# Tier hierarchy for faction stepping-down logic.
+# When a faction's preferred tier is exhausted they step down by one.
+TIER_FALLBACK: Dict[str, str] = {
+    "premium":     "standard",
+    "standard":    "substandard",
+    "substandard": None,
+    "reject":      None,           # No fallback from reject
+}

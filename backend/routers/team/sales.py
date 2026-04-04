@@ -69,4 +69,5 @@ def patch_decisions(
 
     mem.decisions = current
     db.commit()
+
     return OkResponse(message="Sales decisions updated.")
