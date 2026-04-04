@@ -13,7 +13,17 @@ export const teamApi = {
   // Team auth is lightweight; backend may not strictly validate here.
   login: async (teamId: number, pin: string) => {
     // Persist locally for interceptors; backend login optional
-    return { team_id: teamId, team_name: `Team ${teamId}` };
+    // match EXACT structure expected by interceptor
+  const authData = {
+    state: {
+      teamId: teamId,
+      pin: pin,
+    },
+  };
+
+  localStorage.setItem("industrix-auth", JSON.stringify(authData));
+
+  return { team_id: teamId, team_name: `Team ${teamId}` };
   },
 
   // Public status endpoint (no auth headers required)
@@ -34,7 +44,7 @@ export const teamApi = {
   // Fallback to procurement GET if sources are embedded elsewhere.
   getSources: async (component?: string): Promise<Source[]> => {
     const params = component ? { component } : undefined;
-    const { data } = await api.get<Source[]>('/games/current/sources', { params });
+    const { data } = await api.get<Source[]>('/team/procurement/sources', { params });
     return data;
   },
 
