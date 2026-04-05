@@ -646,3 +646,55 @@ def game_summary(
         ],
         "pending_events_by_phase": event_counts,
     }
+
+
+# ── Financial risk detection ──────────────────────────────────────────────────
+
+@router.get("/teams/financial-risks",
+            summary="List teams with negative funds or suspiciously low funds relative to the pack.")
+def financial_risks(
+    game: Game    = Depends(verify_organiser),
+    db:   Session = Depends(get_db),
+):
+    """
+    Identifies teams that are targets for backroom government bailouts, 
+    extortion, or loans. 
+    - cash_crunch: Funds < 0
+    - suspiciously_low: Funds >= 0 but less than 25% of the active team average.
+    """
+    teams = db.query(Team).filter(Team.game_id == game.id, Team.is_active == True).all()
+    
+    team_funds = []
+    team_data = {}
+    for t in teams:
+        inv = db.query(Inventory).filter(Inventory.team_id == t.id).first()
+        funds = float(inv.funds) if inv else 0.0
+        team_funds.append(funds)
+        team_data[t.id] = {"id": t.id, "name": t.name, "funds": funds}
+
+    if not team_funds:
+        return {"cash_crunch": [], "suspiciously_low": [], "average_funds": 0.0}
+
+    # Calculate average among ALL teams to define what "others" have
+    avg_funds = sum(team_funds) / len(team_funds)
+    low_threshold = max(0.0, avg_funds * 0.25) # 25% of the game's average
+
+    cash_crunch = []
+    suspiciously_low = []
+
+    for t_id, data in team_data.items():
+        if data["funds"] < 0:
+            cash_crunch.append(data)
+        elif data["funds"] < low_threshold and data["funds"] >= 0:
+            suspiciously_low.append(data)
+
+    # Sort them by most dire first
+    cash_crunch.sort(key=lambda x: x["funds"])
+    suspiciously_low.sort(key=lambda x: x["funds"])
+
+    return {
+        "cash_crunch": cash_crunch,
+        "suspiciously_low": suspiciously_low,
+        "average_funds": round(avg_funds, 2),
+        "threshold": round(low_threshold, 2)
+    }

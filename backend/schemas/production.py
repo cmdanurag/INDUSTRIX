@@ -118,3 +118,24 @@ class ComponentSlotOut(BaseModel):
     rnd_yield:         int
     machines:          List[MachineOut]
     total_throughput:  int   # sum of active machine throughputs
+
+
+# ── Decision Support (Live Projections) ───────────────────────────────────────
+
+class ComponentProjection(BaseModel):
+    throughput_max:  int
+    effective_grade: float
+    sigma:           float
+    cost_maint:      float
+    cost_rnd:        float
+    cost_buy:        float
+
+
+class ProductionProjectionResponse(BaseModel):
+    total_outflow:           float
+    total_required_labour:   int
+    labour_gap:              int
+    labour_factor:           float
+    projected_morale_delta:  float
+    projected_morale:        float
+    components:              Dict[str, ComponentProjection]

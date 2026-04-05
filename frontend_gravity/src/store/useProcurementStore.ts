@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import type { ComponentType, Source, ProcurementDecision } from '../types';
+import type { ComponentType, Source, ProcurementDecision, TransportOut, CostProjectionOut } from '../types';
 import { teamApi } from '../api';
+
+let projectionTimeout: ReturnType<typeof setTimeout>;
 
 const DEFAULT_DECISION: ProcurementDecision = {
   source_id: 1,
@@ -15,9 +17,16 @@ interface ProcurementState {
   sourcesByComponent: Record<string, Source[]>;
   selectedComponent: ComponentType;
 
+  transports: Record<string, TransportOut>;
+  isBuying: Record<ComponentType, boolean>;
+  projectedCosts: CostProjectionOut | null;
+
   setComponent: (c: ComponentType) => void;
   setDecision: (component: ComponentType, field: keyof ProcurementDecision, value: any) => void;
+  setIsBuying: (component: ComponentType, val: boolean) => void;
   fetchSources: () => Promise<void>;
+  fetchTransports: () => Promise<void>;
+  fetchProjectedCosts: () => void;
   fetchExistingDecisions: () => Promise<void>;
   submitDecisions: () => Promise<void>;
 }
@@ -42,18 +51,75 @@ export const useProcurementStore = create<ProcurementState>((set, get) => ({
   sources: [],
   sourcesByComponent: {},
   selectedComponent: 'airframe',
+  transports: {},
+  isBuying: {
+    airframe: false,
+    propulsion: false,
+    avionics: false,
+    fire_suppression: false,
+    sensing_safety: false,
+    battery: false,
+  },
+  projectedCosts: null,
 
   setComponent: (c) => set({ selectedComponent: c }),
 
-  setDecision: (component, field, value) => set((state) => ({
-    decisions: {
-      ...state.decisions,
-      [component]: {
-        ...state.decisions[component],
-        [field]: value,
+  setIsBuying: (component, val) => {
+    set((state) => {
+      const currentComp = state.decisions[component];
+      const sources = state.sourcesByComponent[component] || [];
+      let newQuantity = currentComp.quantity;
+      let newSourceId = currentComp.source_id;
+
+      if (!val) {
+          newQuantity = 0;
+          if (sources.length > 0) newSourceId = sources[0].id;
+      } else {
+          if (newQuantity === 0) {
+              const src = sources.find(s => s.id === newSourceId) || sources[0];
+              if (src) {
+                  newSourceId = src.id;
+                  newQuantity = src.min_order;
+              }
+          }
+      }
+
+      return {
+        isBuying: { ...state.isBuying, [component]: val },
+        decisions: {
+          ...state.decisions,
+          [component]: { ...currentComp, quantity: newQuantity, source_id: newSourceId }
+        }
+      };
+    });
+    get().fetchProjectedCosts();
+  },
+
+  setDecision: (component, field, value) => {
+    set((state) => ({
+      decisions: {
+        ...state.decisions,
+        [component]: {
+          ...state.decisions[component],
+          [field]: value,
+        },
       },
-    },
-  })),
+    }));
+    get().fetchProjectedCosts();
+  },
+
+  fetchProjectedCosts: () => {
+    clearTimeout(projectionTimeout);
+    const { decisions } = get();
+    projectionTimeout = setTimeout(async () => {
+        try {
+            const res = await teamApi.projectProcurementCosts(decisions);
+            set({ projectedCosts: res });
+        } catch(e) {
+            console.error(e);
+        }
+    }, 300);
+  },
 
   fetchSources: async () => {
     try {
@@ -71,18 +137,29 @@ export const useProcurementStore = create<ProcurementState>((set, get) => ({
     }
   },
 
+  fetchTransports: async () => {
+    try {
+      const transports = await teamApi.getTransports();
+      set({ transports });
+    } catch (err) {
+      console.error("Failed to load transports", err);
+    }
+  },
+
   fetchExistingDecisions: async () => {
     try {
       const data = await teamApi.getProcurement();
       if (data && data.decisions) {
         if (Object.keys(data.decisions).length > 0) {
           const merged = { ...get().decisions };
+          const newIsBuying = { ...get().isBuying };
           (Object.keys(data.decisions) as ComponentType[]).forEach(comp => {
             if (data.decisions[comp]) {
               merged[comp] = { ...merged[comp], ...data.decisions[comp] };
+              newIsBuying[comp] = merged[comp].quantity > 0;
             }
           });
-          set({ decisions: merged, initialDecisions: merged });
+          set({ decisions: merged, initialDecisions: merged, isBuying: newIsBuying });
         }
       }
     } catch (err) {

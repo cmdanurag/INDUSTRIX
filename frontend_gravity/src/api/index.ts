@@ -9,6 +9,8 @@ import type {
   ComponentSlotData,
   MarketFaction,
   FinancesData,
+  TransportOut,
+  CostProjectionOut,
 } from '../types';
 
 // Thin wrapper around backend endpoints. No hardcoded data.
@@ -16,19 +18,19 @@ export const teamApi = {
   // Team auth is lightweight; backend may not strictly validate here.
   login: async (teamId: number, pin: string) => {
     const { data } = await api.post(
-        "/team/login",
-        {}, // empty body
-        {
-            headers: {
-                "x-team-id": teamId,
-                "x-team-pin": pin,
-            },
-        }
+      "/team/login",
+      {}, // empty body
+      {
+        headers: {
+          "x-team-id": teamId,
+          "x-team-pin": pin,
+        },
+      }
     );
 
     return {
-        team_id: data.team_id,
-        team_name: data.team_name,
+      team_id: data.team_id,
+      team_name: data.team_name,
     };
   },
 
@@ -54,9 +56,19 @@ export const teamApi = {
     return data;
   },
 
+  getTransports: async (): Promise<Record<string, TransportOut>> => {
+    const { data } = await api.get<Record<string, TransportOut>>('/team/procurement/transports');
+    return data;
+  },
+
   // Procurement memory
   getProcurement: async (): Promise<ProcurementMemoryOut> => {
     const { data } = await api.get<ProcurementMemoryOut>('/team/procurement');
+    return data;
+  },
+
+  projectProcurementCosts: async (decisions: Record<string, any>): Promise<CostProjectionOut> => {
+    const { data } = await api.post<CostProjectionOut>('/team/procurement/project', { decisions });
     return data;
   },
 
@@ -99,7 +111,7 @@ export const teamApi = {
     const { data } = await api.get<{ drone_stock_total: number; components: ComponentSlotData[] }>('/team/inventory/components');
     return data;
   },
-  
+
   getMachines: async (comp: string) => {
     const { data } = await api.get<ComponentSlotData>(`/team/inventory/machines/${comp}`);
     return data;

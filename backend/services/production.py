@@ -546,10 +546,11 @@ def resolve_production(
             "total_throughput": tp_total,
             "requested":        requested,
             "machines_active":  len(machines),
-            "effective_grade":  round(eff_grade, 1),
-            "sigma":            round(sigma, 2),
+            "effective_grade_mean": round(eff_grade, 1),
+            "effective_sigma":  round(sigma, 2),
             "rm_consumed":      consumed,
             "fin_stock_total":  sum(slot.finished_stock[1:]),
+            "maintenance":      maintenance,
         }
 
     # ── Wages ─────────────────────────────────────────────────────────────────
@@ -564,9 +565,15 @@ def resolve_production(
         "components":    component_summaries,
         "forced_strike": forced_strike,
         "riot":          inventory.morale <= MORALE_RIOT,
-        "wage_total":    round(wage_total, 2),
-        "maint_total":   round(total_maint_cost, 2),
-        "current_funds": round(inventory.funds, 2),
+        "wage_cost":     round(wage_total, 2),
+        "maintenance_cost": round(total_maint_cost, 2),
+        "funds_after":   round(inventory.funds, 2),
+        "labour": {
+            "wage_level":     wage_level,
+            "workforce_size": inventory.workforce_size,
+            "skill_level":    round(inventory.skill_level, 2),
+            "morale":         round(inventory.morale, 2),
+        }
     }
 
 
@@ -606,3 +613,117 @@ def _schedule_rnd_event(
         levels       = levels,
         cost         = cost,
     )
+
+
+def calculate_projections(
+    db: Session,
+    team,
+    cycle: Cycle,
+    decisions: Dict,
+) -> Dict:
+    """
+    Decision support helper. 
+    Returns the exact same formulas used in resolution, but without 
+    mutating any state.
+    """
+    inventory: Inventory = (
+        db.query(Inventory).filter(Inventory.team_id == team.id).first()
+    )
+    slots: Dict[str, ComponentSlot] = {
+        s.component.value: s
+        for s in db.query(ComponentSlot)
+        .filter(ComponentSlot.team_id == team.id)
+        .all()
+    }
+    
+    # Use provided decisions, falling back to database state if partial
+    cur_decisions = dict(decisions)
+    
+    automation_level = (
+        inventory.automation_level.value
+        if hasattr(inventory.automation_level, "value")
+        else str(inventory.automation_level)
+    )
+    
+    upgrade_auto = cur_decisions.get("upgrade_automation", automation_level)
+    target_headcount = cur_decisions.get("target_headcount", inventory.workforce_size)
+    wage_level = cur_decisions.get("wage_level", "market")
+    
+    # 1. Required Labour
+    total_required_labour = 0
+    all_machines = {comp: get_active_machines(db, team.id, comp) for comp in slots}
+    
+    for comp_val, machines in all_machines.items():
+        comp_dec = cur_decisions.get(comp_val, {})
+        labour_mult = AUTOMATION_LABOUR_MULT.get(upgrade_auto, 1.0)
+        
+        # Existing
+        for m in machines:
+            cfg = MACHINE_TIERS.get(m.tier, MACHINE_TIERS["standard"])
+            total_required_labour += int(cfg["labour"] * labour_mult)
+            
+        # Pending buy
+        buy = comp_dec.get("buy_machine")
+        if buy:
+            tier = buy.get("tier") if isinstance(buy, dict) else buy
+            cfg = MACHINE_TIERS.get(tier, {})
+            total_required_labour += int(cfg.get("labour", 10) * labour_mult)
+
+    labour_gap = total_required_labour - target_headcount
+    labour_factor = 1.0
+    if total_required_labour > 0 and target_headcount < total_required_labour:
+        labour_factor = target_headcount / total_required_labour
+
+    understaffed_pct = (max(0, labour_gap) / total_required_labour * 100) if total_required_labour > 0 else 0
+    proj_morale_delta = WAGE_MORALE_DELTA.get(wage_level, 0.0)
+    proj_morale_delta -= understaffed_pct * UNDERSTAFFING_MORALE_PENALTY
+    proj_morale = max(0.0, min(100.0, inventory.morale + proj_morale_delta))
+
+    # 2. Costs
+    wage_total = target_headcount * WAGE_COST_PER_WORKER.get(wage_level, 500.0)
+    auto_cost = AUTOMATION_UPGRADE_COST.get(upgrade_auto, 0) if upgrade_auto != automation_level else 0
+    total_outflow = wage_total + auto_cost
+    
+    comp_projections = {}
+    for comp_val, slot in slots.items():
+        comp_dec = cur_decisions.get(comp_val, {})
+        maint = comp_dec.get("maintenance", "none")
+        buy = comp_dec.get("buy_machine")
+        rnd = comp_dec.get("rnd_invest")
+        
+        machines = list(all_machines.get(comp_val, []))
+        
+        cost_maint = MAINTENANCE_COST.get(maint, 0.0) * len(machines)
+        cost_rnd = (rnd.get("levels", 1) * 10000.0) if rnd else 0.0
+        cost_buy = 0.0
+        
+        if buy:
+            tier = buy.get("tier") if isinstance(buy, dict) else buy
+            cost_buy = MACHINE_TIERS.get(tier, {}).get("buy", 0.0)
+            # Add virtual machine for grade/tp projections
+            machines.append(Machine(tier=tier, condition=100.0))
+            
+        total_outflow += cost_maint + cost_rnd + cost_buy
+        
+        tp_max = int(total_throughput(machines) * labour_factor)
+        eff_grade = _effective_grade_for_machines(machines, slot.rnd_quality)
+        sigma = _compute_sigma(upgrade_auto, inventory.skill_level, slot.rnd_consistency)
+        
+        comp_projections[comp_val] = {
+            "throughput_max": tp_max,
+            "effective_grade": round(eff_grade, 1),
+            "sigma": round(sigma, 2),
+            "cost_maint": cost_maint,
+            "cost_rnd": cost_rnd,
+            "cost_buy": cost_buy
+        }
+
+    return {
+        "total_outflow": round(total_outflow, 2),
+        "total_required_labour": total_required_labour,
+        "labour_gap": labour_gap,
+        "labour_factor": round(labour_factor, 3),
+        "projected_morale_delta": round(proj_morale_delta, 2),
+        "projected_morale": round(proj_morale, 2),
+        "components": comp_projections
+    }

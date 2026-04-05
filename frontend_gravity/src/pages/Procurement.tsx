@@ -1,77 +1,90 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { FiCheckCircle, FiCircle, FiChevronDown, FiChevronUp } from 'react-icons/fi';
 import { useProcurementStore, useGameStore, useInventoryStore } from '../store';
 import { useNotificationStore } from '../store/useNotificationStore';
-import { ComponentTabs, SendDecisionsButton, WarningBanner } from '../components/SharedComponents';
+import { ComponentTabs, SendDecisionsButton } from '../components/SharedComponents';
 
 export const Procurement = () => {
-  const { 
-    decisions, 
-    sourcesByComponent, 
-    selectedComponent, 
-    setComponent, 
-    setDecision, 
-    fetchSources, 
-    fetchExistingDecisions, 
-    submitDecisions 
+  const {
+    decisions,
+    initialDecisions,
+    sourcesByComponent,
+    selectedComponent,
+    setComponent,
+    setDecision,
+    isBuying,
+    setIsBuying,
+    transports,
+    projectedCosts,
+    fetchSources,
+    fetchTransports,
+    fetchExistingDecisions,
+    submitDecisions
   } = useProcurementStore();
 
   const { phase } = useGameStore();
-  const { funds, fetchInventory, rawMaterialStocks } = useInventoryStore();
+  const { funds, fetchInventory, components } = useInventoryStore();
   const { addToast } = useNotificationStore();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
   const [lastSavedAt, setLastSavedAt] = useState('');
+  const [showTransportDetails, setShowTransportDetails] = useState(false);
 
   // Initial data load
   useEffect(() => {
     fetchSources();
+    fetchTransports();
     fetchInventory();
     fetchExistingDecisions();
-  }, [fetchSources, fetchInventory, fetchExistingDecisions]);
+  }, [fetchSources, fetchTransports, fetchInventory, fetchExistingDecisions]);
 
   const currentDecision = decisions[selectedComponent];
   const activeSources = sourcesByComponent[selectedComponent] || [];
   const selectedSource = activeSources.find(s => s.id === currentDecision.source_id) || activeSources[0];
 
   useEffect(() => {
-     if (activeSources.length > 0 && (!currentDecision.source_id || !activeSources.find(s => s.id === currentDecision.source_id))) {
-         setDecision(selectedComponent, 'source_id', activeSources[0].id);
-     }
+    if (activeSources.length > 0 && (!currentDecision.source_id || !activeSources.find(s => s.id === currentDecision.source_id))) {
+      setDecision(selectedComponent, 'source_id', activeSources[0].id);
+    }
   }, [selectedComponent, activeSources, currentDecision.source_id, setDecision]);
 
-  // Helper limits and cost multipliers
-  const transportMults = { water: 0.8, road: 1.0, rail: 1.4, air: 2.5 };
-  
-  // Computations
-  const componentCost = selectedSource 
-    ? currentDecision.quantity * selectedSource.base_cost_per_unit * transportMults[currentDecision.transport]
-    : 0;
+  const isProcurementOpen = phase === 'procurement_open';
+  const buyingCurrentComponent = isBuying[selectedComponent];
 
-  const totalProcurementCost = useMemo(() => {
-    let total = 0;
-    // Iterate over the keys we explicitly initialized
-    for (const comp of Object.keys(decisions) as Array<keyof typeof decisions>) {
-      const dec = decisions[comp];
-      const srcs = sourcesByComponent[comp] || [];
-      const src = srcs.find(s => s.id === dec.source_id);
-      if (src) {
-        total += dec.quantity * src.base_cost_per_unit * transportMults[dec.transport];
-      }
+  // Specific handler for scrolling sources & snapping to min limits
+  const handleSourceSelect = (sourceId: number) => {
+    if (!isProcurementOpen) return;
+    const newSource = activeSources.find(s => s.id === sourceId);
+    if (!newSource) return;
+    setDecision(selectedComponent, 'source_id', newSource.id);
+    setDecision(selectedComponent, 'quantity', newSource.min_order);
+  };
+
+  const handleQuantityBlur = () => {
+    if (!selectedSource) return;
+    let qty = currentDecision.quantity;
+    if (qty < selectedSource.min_order) qty = selectedSource.min_order;
+    if (qty > selectedSource.max_order) qty = selectedSource.max_order;
+    if (qty !== currentDecision.quantity) {
+      setDecision(selectedComponent, 'quantity', qty);
     }
-    return total;
-  }, [decisions, sourcesByComponent]);
+  };
+
+  // Computations
+  const totalProcurementCost = projectedCosts?.total_cost || 0;
+  const currentProjections = projectedCosts?.per_component[selectedComponent];
+  const componentCost = isBuying[selectedComponent] ? (currentProjections?.total || 0) : 0;
 
   const remainingFunds = funds - totalProcurementCost;
-  const isProcurementOpen = phase === 'procurement_open';
+  const fundUsagePct = funds > 0 ? (totalProcurementCost / funds) * 100 : 100;
 
-  // Warnings
-  let warningMsg = null;
-  if (totalProcurementCost > funds) {
-    warningMsg = "OVERSPENDING: Total cost exceeds balance";
-  } else if (totalProcurementCost > 0.8 * funds) {
-    warningMsg = "Spending exceeds 80% of available funds";
-  }
+  let progressColor = "bg-[#3b82f6]"; // Blue for < 25%
+  if (fundUsagePct >= 25 && fundUsagePct < 50) progressColor = "bg-[#10b981]"; // Green
+  else if (fundUsagePct >= 50 && fundUsagePct < 75) progressColor = "bg-[#eab308]"; // Yellow
+  else if (fundUsagePct >= 75) progressColor = "bg-error"; // Red
+
+  const isOverflowing = totalProcurementCost > funds;
 
   const handleSubmit = async () => {
     if (!window.confirm('Confirm procurement decisions? This cannot be undone until the next phase.')) return;
@@ -83,7 +96,7 @@ export const Procurement = () => {
       setSubmitMessage(`SUCCESS: Decisions saved at ${ts}.`);
       setLastSavedAt(ts);
       addToast(`Decisions saved at ${ts}`, 'success');
-    } catch(err: any) {
+    } catch (err: any) {
       setSubmitMessage(`ERROR: ${err.message || "Failed to submit"}`);
       addToast(err?.message || 'Failed to save procurement decisions', 'error');
     } finally {
@@ -92,187 +105,350 @@ export const Procurement = () => {
     }
   };
 
+  const factoryStock = components.find(c => c.component === selectedComponent)?.raw_stock;
+  const renderStockGraph = () => {
+    if (!factoryStock || factoryStock.length !== 101) return null;
+
+    const unusableStock = factoryStock[0];
+    const deciles = Array(25).fill(0);
+    for (let i = 1; i <= 100; i++) {
+      const idx = Math.min(24, Math.floor((i - 1) / 4));
+      deciles[idx] += factoryStock[i];
+    }
+    const maxVal = Math.max(...deciles, 1);
+    const totalItems = deciles.reduce((acc, curr) => acc + curr, 0);
+
+    return (
+      <div className="pt-2 flex flex-col space-y-2 relative flex-1">
+        <div className="flex justify-between items-center text-[10px] text-on-surface-variant uppercase tracking-widest cursor-help group/header relative">
+          <span className="flex items-center space-x-2">
+            <span>Raw Stock Distribution</span>
+            <span className="w-4 h-4 bg-surface-high border border-outline flex items-center justify-center rounded-full">i</span>
+          </span>
+          <span>Usable Units: {totalItems}</span>
+
+          {/* Tooltip for graph */}
+          <div className="absolute top-6 left-0 hidden group-hover/header:block bg-surface p-2 border border-outline-variant shadow-lg text-[10px] font-mono text-on-surface w-64 z-50 normal-case leading-relaxed">
+            Displays current usable inventory density. Unusable damages (Grade 0) are excluded. New procurements will dynamically merge into this spread upon cycle resolution following transport damage rolls.
+          </div>
+        </div>
+
+        <div className="flex items-end flex-1 min-h-[60px] w-full space-x-[2px] mt-1 mb-1">
+          {deciles.map((val, idx) => (
+            <div key={idx} className="flex-1 bg-surface-highest transition-colors flex flex-col justify-end h-full group/col relative">
+              <div className="w-full bg-outline transition-all duration-300 group-hover/col:bg-primary rounded-t-sm" style={{ height: `${(val / maxVal) * 100}%` }}></div>
+              <div className="absolute bottom-full mb-1 hidden group-hover/col:block bg-surface p-1 text-[10px] z-10 border border-outline-variant whitespace-nowrap shadow-lg">
+                Grade {idx * 4 + 1}-{idx * 4 + 4}: {val} units
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-between text-[8px] text-on-surface-variant font-mono">
+          <span>Gr 1</span>
+          <span>Gr 50</span>
+          <span>Gr 100</span>
+        </div>
+
+        {unusableStock > 0 && (
+          <div className="text-[10px] text-error font-mono mt-1 pt-2 border-t border-error/20 flex justify-between">
+            <span>UNUSABLE INVENTORY (GRADE 0)</span>
+            <span className="font-bold">{unusableStock} units</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const currentTransportData = transports[currentDecision.transport];
+
   return (
     <div className="flex flex-col h-full space-y-6">
       <ComponentTabs selected={selectedComponent} onSelect={setComponent} />
-      
+
       <h1 className="font-display text-3xl uppercase tracking-tighter">
         PROCUREMENT
       </h1>
 
-      <div className="flex flex-1 overflow-hidden space-x-6">
-        {/* INPUT SECTION */}
-        <div className="w-3/5 flex flex-col space-y-6">
-          
-          <div className="bg-surface-container p-6 space-y-6 flex-1 border border-outline-variant">
-            {/* Supplier Select */}
-            <div className="space-y-2">
-              <label className="block text-xs font-mono text-on-surface-variant uppercase tracking-widest">
-                SUPPLIER SOURCE
-              </label>
-              <div className="max-h-40 overflow-y-auto border border-outline-variant">
-                <table className="w-full font-mono text-xs">
-                  <thead className="bg-surface-low text-on-surface-variant">
-                    <tr>
-                      <th className="p-2 text-left">Supplier</th>
-                      <th className="p-2 text-left">Q</th>
-                      <th className="p-2 text-left">σ</th>
-                      <th className="p-2 text-left">Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeSources.map((s) => (
-                      <tr
-                        key={s.id}
-                        onClick={() => isProcurementOpen && setDecision(selectedComponent, 'source_id', s.id)}
-                        className={`${currentDecision.source_id === s.id ? 'bg-surface-highest' : 'bg-surface'} cursor-pointer`}
-                      >
-                        <td className="p-2">{s.name}</td>
-                        <td className="p-2">{s.quality_mean.toFixed(2)}</td>
-                        <td className="p-2">{s.quality_sigma.toFixed(2)}</td>
-                        <td className="p-2">${s.base_cost_per_unit.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                    {activeSources.length === 0 && (
-                      <tr><td colSpan={4} className="p-4 text-center text-on-surface-variant">No sources available for {selectedComponent}</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+      <div className="flex space-x-6 items-center flex-shrink-0">
+        <button
+          onClick={() => isProcurementOpen && setIsBuying(selectedComponent, false)}
+          disabled={!isProcurementOpen}
+          className={`flex-1 flex items-center justify-between p-4 border font-display tracking-widest transition-colors ${!buyingCurrentComponent ? 'bg-error-container border-error text-on-surface' : 'bg-surface-low border-outline-variant text-on-surface-variant hover:bg-surface-high'} ${!isProcurementOpen && 'opacity-50 cursor-not-allowed'}`}
+        >
+          <span>DO NOT PURCHASE</span>
+          {!buyingCurrentComponent ? <FiCheckCircle className="text-xl" /> : <FiCircle className="text-xl opacity-50" />}
+        </button>
 
-            {/* Quantity Input */}
-            <div className="space-y-2 w-1/2">
-              <label className="block text-xs font-mono text-on-surface-variant uppercase tracking-widest">
-                PROCURING QUANTITY
-              </label>
-              <input 
-                type="number"
-                min="0"
-                max="10000"
-                step="1"
-                value={currentDecision.quantity}
-                onChange={e => setDecision(selectedComponent, 'quantity', parseInt(e.target.value) || 0)}
-                disabled={!isProcurementOpen}
-                className="w-full bg-surface-low border border-outline-variant p-3 font-mono text-2xl text-primary"
-              />
-            </div>
-
-            {/* Transport Toggle */}
-            <div className="space-y-2">
-              <label className="block text-xs font-mono text-on-surface-variant uppercase tracking-widest">
-                TRANSPORT MODE
-              </label>
-              <div className="flex space-x-2">
-                {(['water', 'road', 'rail', 'air'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    disabled={!isProcurementOpen}
-                    onClick={() => setDecision(selectedComponent, 'transport', mode)}
-                    className={`flex-1 py-3 text-sm font-mono uppercase tracking-widest transition-colors border
-                      ${currentDecision.transport === mode 
-                        ? 'bg-surface-highest text-primary border-primary' 
-                        : 'bg-surface text-on-surface-variant border-outline-variant hover:bg-surface-low'
-                      }
-                      ${!isProcurementOpen && 'opacity-50 cursor-not-allowed'}
-                    `}
-                  >
-                    {mode} · {transportMults[mode]}x
-                  </button>
-                ))}
-              </div>
-              <p className="text-[10px] text-on-surface-variant font-mono">Loss risks: Water: High, Road: Moderate, Rail: Low, Air: Minimal</p>
-            </div>
-
-          </div>
-
-          {warningMsg && <WarningBanner message={warningMsg} />}
-          {submitMessage && (
-            <div className={`p-4 border-l-4 font-mono text-sm bg-surface-high 
-              ${submitMessage.startsWith('SUCCESS') ? 'text-primary border-primary' : 'text-error border-error'}`}>
-              {submitMessage}
-            </div>
-          )}
-        </div>
-
-        {/* DETAILS PANEL */}
-        <div className="w-2/5 flex flex-col space-y-6">
-          <div className="bg-surface-low p-6 border border-outline-variant space-y-6 flex-1">
-            <h2 className="font-display text-sm uppercase tracking-widest text-[#978d9e] border-b border-outline-variant pb-2">
-              SUPPLY CONTRACT DETAILS
-            </h2>
-            
-            {selectedSource ? (
-              <div className="space-y-4 font-mono text-sm">
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">SUPPLIER</span>
-                  <span className="text-on-surface text-right">{selectedSource.name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">DISTANCE</span>
-                  <span className="text-on-surface">{selectedSource.distance} km</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">ORDER LIMITS</span>
-                  <span className="text-on-surface">{selectedSource.min_order} - {selectedSource.max_order}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">QUALITY MEAN</span>
-                  <span className="text-on-surface">{selectedSource.quality_mean.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">CONSISTENCY</span>
-                  <span className="text-on-surface">±{selectedSource.quality_sigma.toFixed(2)} σ</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">UNIT BASE COST</span>
-                  <span className="text-on-surface">${selectedSource.base_cost_per_unit.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-on-surface-variant">CURRENT STOCK</span>
-                  <span className="text-on-surface">{rawMaterialStocks[selectedComponent] || 0} units</span>
-                </div>
-              </div>
-            ) : (
-               <div className="text-on-surface-variant font-mono text-sm italic">No source selected</div>
-            )}
-            
-            <div className="pt-4 mt-4 border-t border-outline-variant space-y-4 font-mono">
-              <div className="flex flex-col">
-                <span className="text-on-surface-variant text-xs mb-1">THIS COMPONENT COST</span>
-                <span className="text-2xl text-on-surface">${componentCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              </div>
-              
-              <div className="flex flex-col pt-4 border-t border-outline-variant/30">
-                <span className="text-on-surface-variant text-xs mb-1">REMAINING GLOBAL FUNDS</span>
-                <span className={`text-xl ${remainingFunds < 0 ? 'text-error' : 'text-primary'}`}>
-                  ${remainingFunds.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <button
+          onClick={() => isProcurementOpen && setIsBuying(selectedComponent, true)}
+          disabled={!isProcurementOpen}
+          className={`flex-1 flex items-center justify-between p-4 border font-display tracking-widest transition-colors ${buyingCurrentComponent ? 'bg-primary-container border-primary text-[#000]' : 'bg-surface-low border-outline-variant text-on-surface-variant hover:bg-surface-high'} ${!isProcurementOpen && 'opacity-50 cursor-not-allowed'}`}
+        >
+          <span>PROCURE COMPONENTS</span>
+          {buyingCurrentComponent ? <FiCheckCircle className="text-xl text-[#000]" /> : <FiCircle className="text-xl opacity-50" />}
+        </button>
       </div>
 
-      {/* BOTTOM BAR */}
-      <div className="bg-surface-container border border-outline-variant p-6 flex justify-between items-center">
-        <div className="flex space-x-12">
-          <div>
-            <div className="text-on-surface-variant font-display text-xs tracking-widest mb-1">TOTAL PROCUREMENT SPEND</div>
-            <div className="text-on-surface font-mono text-xl">${totalProcurementCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            {lastSavedAt && <div className="text-on-surface-variant font-mono text-xs mt-1">Last saved at {lastSavedAt}</div>}
+      {buyingCurrentComponent && (
+        <div className="flex flex-1 overflow-hidden space-x-6 animate-fade-in min-h-0">
+          {/* INPUT SECTION (LEFT) */}
+          <div className="w-[60%] flex flex-col space-y-6 min-h-0">
+            <div className="bg-surface-container p-6 space-y-6 flex-1 flex flex-col border border-outline-variant min-h-0">
+
+              <div className="flex space-x-6 flex-shrink-0 h-[320px]">
+                <div className="w-1/2 flex flex-col space-y-2 h-full">
+                  <label className="block text-xs font-mono text-on-surface-variant uppercase tracking-widest flex-shrink-0">
+                    SUPPLIER SOURCE
+                  </label>
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar relative">
+                    {activeSources.map((s) => {
+                      const isSelected = currentDecision.source_id === s.id;
+                      const isSaved = initialDecisions[selectedComponent]?.source_id === s.id && initialDecisions[selectedComponent]?.quantity > 0;
+                      return (
+                        <div
+                          key={s.id}
+                          onClick={() => handleSourceSelect(s.id)}
+                          className={`relative p-3 border font-mono text-xs cursor-pointer transition-colors ${isSelected ? 'bg-surface-highest border-primary' : 'bg-surface border-outline-variant hover:bg-surface-high'} ${isSaved ? 'ring-1 ring-tertiary ring-offset-1 ring-offset-surface-container' : ''}`}
+                        >
+                          <div className="flex justify-between items-center mb-1">
+                            <span className={isSelected ? 'text-primary font-bold' : 'text-on-surface'}>{s.name}</span>
+                            <span className="text-[10px] text-on-surface-variant">${s.base_cost_per_unit}/u</span>
+                          </div>
+                          <div className="flex justify-between text-[10px] text-on-surface-variant">
+                            <span>Dist: {s.distance}km</span>
+                            <span>Q: {s.quality_mean.toFixed(1)} ± {s.quality_sigma.toFixed(1)}</span>
+                          </div>
+                          {isSaved && <div className="absolute -top-2 -right-2 bg-tertiary text-[#000] text-[8px] px-1 font-bold">SAVED</div>}
+                        </div>
+                      );
+                    })}
+                    {activeSources.length === 0 && (
+                      <div className="p-4 text-center text-on-surface-variant italic font-mono text-xs border border-outline-variant">No sources available</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="w-1/2 flex flex-col space-y-6 h-full overflow-y-auto custom-scrollbar pr-2">
+                  {selectedSource ? (
+                    <div className="bg-surface-low border border-outline-variant p-4 space-y-3 font-mono text-xs flex-1 flex flex-col">
+                      <h3 className="text-primary border-b border-outline-variant/50 pb-2 mb-2 font-bold uppercase">{selectedSource.name}</h3>
+                      <div className="flex justify-between">
+                        <span className="text-on-surface-variant">DISTANCE</span>
+                        <span>{selectedSource.distance} km</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-on-surface-variant">ORDER LIMITS</span>
+                        <span>{selectedSource.min_order} - {selectedSource.max_order}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-on-surface-variant">QUALITY MEAN</span>
+                        <span>{selectedSource.quality_mean.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-on-surface-variant">CONSISTENCY</span>
+                        <span>±{selectedSource.quality_sigma.toFixed(2)} σ</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-on-surface-variant">UNIT BASE COST</span>
+                        <span className="text-tertiary font-bold">${selectedSource.base_cost_per_unit.toFixed(2)}</span>
+                      </div>
+
+                      <div className="pt-4 border-t border-outline-variant/50 mt-auto">
+                        <label className="block text-[10px] font-mono text-on-surface-variant uppercase tracking-widest mb-2">
+                          PROCURING QUANTITY
+                        </label>
+                        <input
+                          type="number"
+                          min={selectedSource.min_order || 0}
+                          max={selectedSource.max_order || 10000}
+                          step="1"
+                          value={currentDecision.quantity}
+                          onBlur={handleQuantityBlur}
+                          onChange={e => {
+                            let val = parseInt(e.target.value) || 0;
+                            setDecision(selectedComponent, 'quantity', val);
+                          }}
+                          disabled={!isProcurementOpen}
+                          className="w-full bg-surface border border-outline-variant p-3 font-mono text-2xl text-primary"
+                        />
+                        {currentDecision.quantity < selectedSource.min_order || currentDecision.quantity > selectedSource.max_order ? (
+                          <p className="text-error text-[10px] mt-1">Order clamped at min limits on losing focus.</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-surface-low border border-outline-variant p-4 flex items-center justify-center text-on-surface-variant font-mono text-xs flex-1 italic">
+                      Select a source
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Transport Toggle & Projected Item Cost */}
+              <div className="space-y-4 flex-shrink-0">
+                <div className="space-y-2">
+                  <label className="block text-xs font-mono text-on-surface-variant uppercase tracking-widest">
+                    TRANSPORT MODE
+                  </label>
+                  <div className="flex space-x-2 relative">
+                    {(Object.keys(transports) || []).map(mode => (
+                      <button
+                        key={mode}
+                        disabled={!isProcurementOpen}
+                        onClick={() => setDecision(selectedComponent, 'transport', mode)}
+                        className={`flex-1 py-3 text-xs font-mono uppercase tracking-widest transition-colors border
+                          ${currentDecision.transport === mode
+                            ? 'bg-surface-highest text-primary border-primary ring-1 ring-primary inset-0'
+                            : 'bg-surface text-on-surface-variant border-outline-variant hover:bg-surface-low'
+                          }
+                          ${!isProcurementOpen && 'opacity-50 cursor-not-allowed'}
+                        `}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+
+                    <button
+                      onClick={() => setShowTransportDetails(!showTransportDetails)}
+                      className="flex items-center justify-center w-12 bg-surface-low border border-outline-variant hover:bg-surface-high transition-colors"
+                    >
+                      {showTransportDetails ? <FiChevronUp /> : <FiChevronDown />}
+                    </button>
+
+                    {showTransportDetails && currentTransportData && (
+                      <div className="absolute right-0 bottom-full mb-2 w-72 bg-surface-highest border border-primary p-4 z-10 shadow-lg font-mono text-xs space-y-2 animate-fade-in">
+                        <div className="flex justify-between items-center border-b border-outline-variant pb-2 mb-2">
+                          <span className="font-bold text-primary uppercase">{currentDecision.transport} DATA</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-on-surface-variant">Base Cost</span>
+                          <span>${currentTransportData.base_cost} / dispatch</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-on-surface-variant">Variable Cost</span>
+                          <span>${currentTransportData.var_cost} / unit·km</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-on-surface-variant">Quality Spread Add</span>
+                          <span>+{currentTransportData.sigma_add.toFixed(2)} σ</span>
+                        </div>
+                        <div className="flex justify-between text-error">
+                          <span className="text-on-surface-variant text-error">Damage Prob.</span>
+                          <span>{(currentTransportData.p_damage * 100).toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* PROJECTED COMPONENT COST INSIDE LEFT BANE */}
+                {selectedSource && isBuying[selectedComponent] && currentProjections && (
+                  <div className="p-4 border border-outline-variant bg-surface-highest group relative flex justify-between items-center cursor-help">
+                    <span className="text-on-surface-variant font-mono text-xs uppercase tracking-widest flex items-center space-x-2">
+                      <span>Projected Total Cost</span>
+                      <span className="bg-primary/20 text-primary rounded-full w-4 h-4 flex items-center justify-center font-bold text-[10px]">i</span>
+                    </span>
+                    <span className="font-mono text-xl text-primary font-bold">
+                      ${componentCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {/* Explicit tooltip block for hover */}
+                    <div className="absolute left-1/4 bottom-full hidden group-hover:block bg-surface p-3 border border-outline-variant shadow-lg text-[10px] font-mono text-on-surface whitespace-nowrap z-50">
+                      <div className="border-b border-outline-variant/30 pb-2 mb-2 font-bold uppercase tracking-widest text-primary">Cost Breakdown</div>
+                      <div className="flex justify-between mb-1 space-x-6"><span className="text-on-surface-variant">Material Subtotal:</span> <span>${currentProjections.material_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                      <div className="flex justify-between"><span className="text-on-surface-variant">Transport Subtotal:</span> <span>${currentProjections.transport_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                      <div className="border-t border-outline-variant/30 mt-2 pt-2 text-tertiary italic">External market modifiers included if applicable</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {submitMessage && (
+              <div className={`p-4 border-l-4 font-mono text-sm bg-surface-high flex-shrink-0
+                ${submitMessage.startsWith('SUCCESS') ? 'text-primary border-primary' : 'text-error border-error'}`}>
+                {submitMessage}
+              </div>
+            )}
+          </div>
+
+          {/* TOTALS & FACTORY IMPACT PANEL (RIGHT) */}
+          <div className="w-[40%] flex flex-col space-y-6 min-h-0 overflow-y-auto custom-scrollbar pr-2">
+            <div className="bg-surface-low p-6 border border-outline-variant space-y-6 flex-1 flex flex-col">
+              <h2 className="font-display text-sm uppercase tracking-widest text-[#978d9e] border-b border-outline-variant pb-2 flex items-center justify-between group relative cursor-help">
+                <span>ORDER SUMMARY</span>
+                <span className="bg-surface-high text-on-surface border border-outline-variant rounded-full w-5 h-5 flex items-center justify-center font-bold text-[10px]">i</span>
+                <div className="absolute right-0 top-full mt-2 hidden group-hover:block bg-surface p-3 border border-outline-variant shadow-lg text-[10px] font-mono text-on-surface w-64 z-[60] leading-relaxed font-normal normal-case">
+                  Procured materials are mixed with existing inventory distributions upon cycle resolution. Unfavorable transports reduce incoming grade means or trigger damage variances over distance.
+                </div>
+              </h2>
+
+              <div className="flex flex-col flex-1">
+                {/* Raw Material Distribution Chart */}
+                {renderStockGraph()}
+
+                <div className="flex flex-col pt-6 mt-4 border-t border-outline-variant/30 space-y-3">
+                  <div className="flex justify-between items-center group relative cursor-help">
+                    <span className="flex items-center space-x-2">
+                      <span className="text-on-surface-variant text-xs uppercase tracking-widest">FUND UTILISATION</span>
+                      <span className="w-4 h-4 bg-surface-high border border-outline flex items-center justify-center rounded-full text-[10px]">i</span>
+                    </span>
+                    <span className="text-on-surface-variant text-[10px]">
+                      {fundUsagePct.toFixed(1)}% of ${funds.toLocaleString()}
+                    </span>
+                    <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block bg-surface p-2 border border-outline-variant shadow-lg text-[10px] font-mono text-on-surface w-48 z-50 normal-case leading-relaxed">
+                      Tracks your global projected spend against company liquid funds dynamically updated by backend game API calculations.
+                    </div>
+                  </div>
+
+                  {/* Progress Bar Container */}
+                  <div className="w-full bg-surface h-3 border border-outline-variant relative overflow-hidden">
+                    <div className={`h-full ${progressColor} transition-all duration-300`} style={{ width: `${Math.min(fundUsagePct, 100)}%` }} />
+                    {isOverflowing && (
+                      <div className="absolute inset-0 bg-error/40" style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,0,0,0.5) 5px, rgba(255,0,0,0.5) 10px)' }}></div>
+                    )}
+                  </div>
+
+                  <div className={`flex justify-between items-end ${isOverflowing ? 'text-error font-bold' : 'text-on-surface'}`}>
+                    <span className="text-[10px] uppercase">PROJECTED SURPLUS</span>
+                    <span className="text-lg">
+                      ${remainingFunds.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  {isOverflowing && (
+                    <div className="bg-error-container text-on-surface p-3 text-[10px] leading-relaxed border-l-2 border-error animate-pulse">
+                      <strong className="block mb-1">CASH CRUNCH IMMINENT</strong>
+                      Your total procurement exceeds available funds. Operational shortages are automatically resolved at year-end via mandatory short-term loans bearing punitive interest.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        
+      )}
+
+      {/* BOTTOM BAR */}
+      <div className="bg-surface-container border border-outline-variant p-6 flex justify-between items-center mt-auto flex-shrink-0">
+        <div className="flex space-x-12 relative w-full h-full">
+          <div>
+            <div className="text-on-surface-variant font-display text-xs tracking-widest mb-1 flex items-center space-x-2">
+              <span>GLOBAL SPEND PROJECTION</span>
+              {projectedCosts ? <FiCheckCircle className="text-primary text-[10px]" /> : null}
+            </div>
+            <div className={`font-mono text-xl ${isOverflowing ? 'text-error' : 'text-on-surface'}`}>${totalProcurementCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            {lastSavedAt && <div className="absolute top-full mt-2 text-on-surface-variant font-mono text-[10px]">Saved at {lastSavedAt}</div>}
+          </div>
+        </div>
+
         <div className="w-64">
-          <SendDecisionsButton 
-            onClick={handleSubmit} 
-            disabled={!isProcurementOpen} 
-            loading={isSubmitting} 
+          <SendDecisionsButton
+            onClick={handleSubmit}
+            disabled={!isProcurementOpen || (buyingCurrentComponent && selectedSource && (currentDecision.quantity < selectedSource.min_order || currentDecision.quantity > selectedSource.max_order))}
+            loading={isSubmitting}
           />
         </div>
       </div>
     </div>
   );
 };
-

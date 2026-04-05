@@ -69,12 +69,20 @@ class ProcurementMemoryOut(BaseModel):
     }
 
 class TransportOut(BaseModel):
-    base_cost: int
-    var_cost: int
+    base_cost: float
+    var_cost: float
     sigma_add: float
     p_damage: float
     mean_reduce: float
     vulnerability: float
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class CostProjectionOut(BaseModel):
+    total_cost: float
+    per_component: Dict[str, dict]
 
     model_config = {
         "from_attributes": True

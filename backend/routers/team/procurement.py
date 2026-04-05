@@ -16,7 +16,7 @@ from core.config import TRANSPORT
 from models.game import Cycle, Game, Team, RawMaterialSource
 from models.procurement import MemoryProcurement
 from schemas.common import OkResponse
-from schemas.procurement import ProcurementMemoryOut, ProcurementPatch, RawMaterialSourceOut, TransportOut
+from schemas.procurement import ProcurementMemoryOut, ProcurementPatch, RawMaterialSourceOut, TransportOut, CostProjectionOut
 
 router = APIRouter(prefix="/team/procurement", tags=["team"])
 
@@ -44,8 +44,8 @@ def get_transports(
 ):
     transports = TRANSPORT
     dct: Dict[str, TransportOut] = {}
-    for key,value in transports.items():
-        dct[key] = TransportOut.from_orm(value)
+    for key, value in transports.items():
+        dct[key] = TransportOut(**value)
     return dct
 
 @router.get("/sources", response_model=List[RawMaterialSourceOut])
@@ -111,3 +111,55 @@ def patch_decisions(
     mem.decisions = current
     db.commit()
     return OkResponse(message="Procurement decisions updated.")
+
+@router.post("/project", response_model=CostProjectionOut)
+def project_costs(
+    body: ProcurementPatch,
+    team: Team    = Depends(verify_team),
+    db:   Session = Depends(get_db),
+):
+    cycle = _assert_phase(db, team, CyclePhase.PROCUREMENT_OPEN)
+    
+    from services.procurement import _load_procurement_events, _get_component_modifiers
+    from core.config import TRANSPORT
+
+    events = _load_procurement_events(db, team.id, cycle.id)
+    
+    total_cost = 0.0
+    summary = {}
+    
+    for comp_val, decision in body.decisions.items():
+        source_id = decision.source_id
+        quantity  = decision.quantity
+        transport_mode = decision.transport.value if hasattr(decision.transport, "value") else decision.transport
+        
+        if quantity == 0:
+            summary[comp_val] = {"material_cost": 0.0, "transport_cost": 0.0, "total": 0.0}
+            continue
+            
+        source = db.query(RawMaterialSource).filter(RawMaterialSource.id == source_id).first()
+        if not source:
+            summary[comp_val] = {"material_cost": 0.0, "transport_cost": 0.0, "total": 0.0}
+            continue
+            
+        mods = _get_component_modifiers(events, comp_val)
+        distance_km = getattr(source, "distance", 500.0)
+        
+        t_cfg = TRANSPORT.get(transport_mode)
+        if not t_cfg:
+            summary[comp_val] = {"material_cost": 0.0, "transport_cost": 0.0, "total": 0.0}
+            continue
+
+        raw_material_cost = quantity * source.base_cost_per_unit
+        raw_transport_cost = t_cfg["base_cost"] + (t_cfg["var_cost"] * distance_km * quantity)
+        
+        final_total = round((raw_material_cost + raw_transport_cost) * mods["cost_multiplier"], 2)
+        
+        summary[comp_val] = {
+            "material_cost": raw_material_cost * mods["cost_multiplier"],
+            "transport_cost": raw_transport_cost * mods["cost_multiplier"],
+            "total": final_total,
+        }
+        total_cost += final_total
+        
+    return CostProjectionOut(total_cost=round(total_cost, 2), per_component=summary)

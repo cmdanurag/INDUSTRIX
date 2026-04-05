@@ -159,10 +159,20 @@ export const SharedLayout = () => {
         </div>
         <div className="flex items-center space-x-8">
           <div className="text-on-surface-variant font-mono text-xs flex items-center space-x-2">
-            <span>
-              PHASE: <span className="text-primary font-bold ml-2 uppercase">{phase.replace('_', ' ')}</span>
+            <span className="flex items-center space-x-2 uppercase tracking-wider font-bold">
+              <span className="opacity-50">...</span>
+              <span className="opacity-50">&gt;</span>
+              <span className={phase === 'procurement_open' ? 'text-primary' : 'opacity-40 hover:opacity-80 transition-opacity'}>PROCUREMENT</span>
+              <span className="opacity-50">&gt;</span>
+              <span className={phase === 'production_open' ? 'text-primary' : 'opacity-40 hover:opacity-80 transition-opacity'}>PRODUCTION</span>
+              <span className="opacity-50">&gt;</span>
+              <span className={phase === 'sales_open' ? 'text-primary' : 'opacity-40 hover:opacity-80 transition-opacity'}>SALES</span>
+              <span className="opacity-50">&gt;</span>
+              <span className={phase === 'backroom' ? 'text-primary' : 'opacity-40 hover:opacity-80 transition-opacity'}>BACKROOM</span>
+              <span className="opacity-50">&gt;</span>
+              <span className="opacity-50">...</span>
             </span>
-            <span className="ml-3">· CYCLE <span className="text-on-surface">{cycleNumber || 0}</span></span>
+            <span className="ml-3 pl-3 border-l border-outline-variant">CYCLE <span className="text-on-surface ml-1">{cycleNumber || 0}</span></span>
           </div>
           <div className="text-on-surface font-mono text-xs">
             <span className={`${funds < 0 ? 'text-error' : 'text-on-surface'}`}>${funds.toLocaleString()}</span>

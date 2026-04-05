@@ -13,7 +13,8 @@ from core.enums import CyclePhase
 from models.game import Cycle, Game, Team
 from models.production import MemoryProduction
 from schemas.common import OkResponse
-from schemas.production import ProductionMemoryOut, ProductionPatch
+from schemas.production import ProductionMemoryOut, ProductionPatch, ProductionProjectionResponse
+from services.production import calculate_projections
 
 router = APIRouter(prefix="/team/production", tags=["team"])
 
@@ -66,7 +67,6 @@ def patch_decisions(
     # Merge component decisions
     for comp_val, dec in body.component_decisions.items():
         if comp_val not in current:
-            print("Hello")
             current[comp_val] = {}
         current[comp_val] = dec.dict()
 
@@ -82,3 +82,34 @@ def patch_decisions(
     db.commit()
 
     return OkResponse(message="Production decisions updated.")
+
+
+@router.post("/projections", response_model=ProductionProjectionResponse)
+def get_projections(
+    body: ProductionPatch,
+    team: Team    = Depends(verify_team),
+    db:   Session = Depends(get_db),
+):
+    cycle = _assert_phase(db, team, CyclePhase.PRODUCTION_OPEN)
+    
+    # Merge existing decisions with the patch body to get the 'hypothetical' full state
+    mem = db.query(MemoryProduction).filter(MemoryProduction.team_id == team.id).first()
+    if mem is None:
+        raise HTTPException(500, "Production memory not initialised.")
+        
+    current = dict(mem.decisions or {})
+    
+    # Merge component decisions
+    for comp_val, dec in body.component_decisions.items():
+        current[comp_val] = dec.dict()
+
+    # Merge top-level
+    if body.wage_level is not None:
+        current["wage_level"] = body.wage_level.value
+    if body.target_headcount is not None:
+        current["target_headcount"] = body.target_headcount
+    if body.upgrade_automation is not None:
+        current["upgrade_automation"] = body.upgrade_automation.value
+
+    projections = calculate_projections(db, team, cycle, current)
+    return ProductionProjectionResponse(**projections)

@@ -64,6 +64,8 @@ def _build_slot(db: Session, slot: ComponentSlot) -> dict:
     )
     return {
         "component":        slot.component.value,
+        "raw_stock":        slot.raw_stock if slot.raw_stock else [0]*101,
+        "finished_stock":   slot.finished_stock if slot.finished_stock else [0]*101,
         "raw_stock_total":  sum(slot.raw_stock[1:])       if slot.raw_stock      else 0,
         "fin_stock_total":  sum(slot.finished_stock[1:])  if slot.finished_stock else 0,
         "rnd_quality":      slot.rnd_quality,

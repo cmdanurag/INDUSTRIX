@@ -29,6 +29,26 @@ export interface ProcurementMemoryOut {
   decisions: Record<string, ProcurementDecision>;
 }
 
+export interface TransportOut {
+  base_cost: number;
+  var_cost: number;
+  sigma_add: number;
+  p_damage: number;
+  mean_reduce: number;
+  vulnerability: number;
+}
+
+export interface ComponentCost {
+  material_cost: number;
+  transport_cost: number;
+  total: number;
+}
+
+export interface CostProjectionOut {
+  total_cost: number;
+  per_component: Record<string, ComponentCost>;
+}
+
 // Production Phase
 export interface MachineData {
   id: number;
@@ -43,6 +63,8 @@ export interface MachineData {
 
 export interface ComponentSlotData {
   component: string;
+  raw_stock: number[];
+  finished_stock: number[];
   raw_stock_total: number;
   fin_stock_total: number;
   rnd_quality: number;
@@ -143,4 +165,76 @@ export interface GameStatusOut {
     | 'waiting_for_first_cycle'
     | 'no_active_game';
   game_active: boolean;
+}
+
+// ── Phase Resolution Summaries ────────────────────────────────────────────────
+
+export interface ProcurementComponentSummary {
+  source: string;          // source name
+  transport: string;
+  distance_km: number;
+  units_ordered: number;
+  units_received: number;
+  cost: number;
+  event: string;           // 'none' | 'partial_damage' | 'sabotaged' | 'source_unavailable' | ...
+  raw: number[];           // 101-element quality distribution array
+}
+
+export interface ProcurementSummary {
+  cycle_number: number;
+  total_cost: number;
+  per_component: Record<string, ProcurementComponentSummary>;
+}
+
+export interface ProductionComponentSummary {
+  units_produced: number;
+  rm_consumed: number;
+  requested: number;
+  total_throughput: number;
+  machines_active: number;
+  fin_stock_total: number;
+  effective_grade_mean: number;
+  effective_sigma: number;
+  machine_condition_after?: number;
+  maintenance: string;
+}
+
+export interface ProductionSummary {
+  cycle_number: number;
+  wage_cost: number;
+  maintenance_cost: number;
+  funds_after: number;
+  riot: boolean;
+  strike: boolean;
+  labour: {
+    wage_level: string;
+    workforce_size: number;
+    skill_level: number;
+    morale: number;
+  };
+  components: Record<string, ProductionComponentSummary>;
+}
+
+export interface SalesFactionSale {
+  faction: string;
+  tier: string;
+  units_sold: number;
+  price_per_unit: number;
+  revenue: number;
+}
+
+export interface SalesSummary {
+  cycle_number: number;
+  drones_assembled: number;
+  units_sold: number;
+  units_held: number;
+  units_scrapped: number;
+  revenue: number;
+  holding_cost: number;
+  brand_delta: number;
+  brand_score_after: number;
+  closing_funds: number;
+  black_market_discovered: boolean;
+  faction_sales: SalesFactionSale[];
+  revenue_by_tier: Record<string, number>;
 }
